@@ -1,0 +1,2 @@
+-- 0005_token_usage.sql: provider token usage is added idempotently by
+-- db.Migrate to keep existing SQLite volumes compatible.

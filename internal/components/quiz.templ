@@ -1,0 +1,735 @@
+package components
+
+import (
+	"fmt"
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
+
+	"learnix/internal/db"
+	"learnix/internal/session"
+)
+
+func letter(i int) string { return string(rune('A' + i)) }
+
+func qnum(i int) string { return fmt.Sprintf("%02d", i+1) }
+
+func fmtCents(cents int64) string {
+	return strings.ReplaceAll(fmt.Sprintf("%.2f", float64(cents)/100), ".", ",")
+}
+
+func quizTutorURL(studyID int64, q session.Question) string {
+	prompt := "Explique por que esta questão está correta e me dê uma forma simples de lembrar: " + q.Text
+	return studyBase(studyID) + "/workspace?prompt=" + url.QueryEscape(prompt)
+}
+
+func quizAction(baseURL, action string, standalone bool) string {
+	if standalone {
+		return baseURL + "/" + action
+	}
+	return baseURL + "/quiz/" + action
+}
+
+func testTopicURL(topic string, adaptiveFrom int64) string {
+	value := "/tests/new?topic=" + url.QueryEscape(topic)
+	if adaptiveFrom > 0 {
+		value += "&adaptive_from=" + strconv.FormatInt(adaptiveFrom, 10)
+	}
+	return value
+}
+
+func quizHomeURL(standalone bool) string {
+	if standalone {
+		return "/tests"
+	}
+	return "/"
+}
+
+func testOverviewURL(s *session.Session) string {
+	if s.TestID > 0 {
+		return "/tests/" + strconv.FormatInt(s.TestID, 10)
+	}
+	return testTopicURL(s.Config.Topic, s.ActiveQuizID)
+}
+
+func isCorrect(sess *session.Session, i int) bool {
+	return i < len(sess.Answers) && sess.Answers[i] == sess.Questions[i].Correct
+}
+
+func hasAnswer(sess *session.Session, i int) bool {
+	return i >= 0 && i < len(sess.Answers) && sess.Answers[i] >= 0
+}
+
+func answerAt(sess *session.Session, i int) int {
+	if i >= 0 && i < len(sess.Answers) {
+		return sess.Answers[i]
+	}
+	return -1
+}
+
+func flaggedAt(sess *session.Session, i int) bool {
+	return i >= 0 && i < len(sess.Flags) && sess.Flags[i]
+}
+
+// examRemainingSeconds is the server-authoritative countdown anchor; the
+// client ticks down from it and re-syncs on every htmx swap.
+func examRemainingSeconds(s *session.Session) int {
+	if s.ExamDeadline == nil {
+		return 0
+	}
+	remaining := int(time.Until(*s.ExamDeadline).Seconds())
+	if remaining < 0 {
+		return 0
+	}
+	return remaining
+}
+
+func examAnsweredCount(s *session.Session) int {
+	n := 0
+	for _, a := range s.Answers {
+		if a >= 0 {
+			n++
+		}
+	}
+	return n
+}
+
+func examFlaggedCount(s *session.Session) int {
+	n := 0
+	for _, f := range s.Flags {
+		if f {
+			n++
+		}
+	}
+	return n
+}
+
+templ Quiz(s *session.Session, i int, q session.Question, total int, user *db.User, quota *db.Quota, isAdmin bool, baseURL string, standalone bool) {
+	{{ mobile := MobileStudyState{HasActiveQuiz: true, QuizCurrent: i, QuizTotal: total} }}
+	if standalone {
+		@Layout(AuthedPageData("Prova", "quiz", s.Config.Topic, user, quota, isAdmin)) {
+			@quizBody(s, i, q, total, baseURL, standalone)
+		}
+	} else {
+		@Layout(studyPageData("Questões", "quiz", s.Config.Topic, user, quota, isAdmin, s.StudyID, mobile)) {
+			@quizBody(s, i, q, total, baseURL, standalone)
+		}
+	}
+}
+
+templ quizBody(s *session.Session, i int, q session.Question, total int, baseURL string, standalone bool) {
+	if s.Exam && s.Phase == "quiz" {
+		<div class="pt-4 sm:pt-6 max-w-3xl mx-auto">
+			<div class="text-center mb-6 rise">
+				<span class="micro-label inline-flex items-center gap-2 bg-coral/10 border border-coral px-3 py-1.5 text-coral">
+					<i data-lucide="timer" class="w-3.5 h-3.5"></i>
+					Simulado · estilo prova
+				</span>
+				<h2 class="font-display text-3xl sm:text-4xl font-800 tracking-tight mt-4">Respire fundo. Vai dar bom.</h2>
+			</div>
+			<div id="quiz-area" data-quiz-id={ strconv.FormatInt(s.ActiveQuizID, 10) } data-exam="1">
+				@ExamBoard(baseURL, s, i, standalone)
+			</div>
+			<p class="mt-5 hidden sm:block text-center text-[10px] uppercase tracking-[0.14em] text-muted/70">Teclado: 1–5 ou A–E alternativa · Enter confirma · M marca revisão · ← → navegam</p>
+		</div>
+	} else {
+		<div class="pt-4 sm:pt-6 max-w-3xl mx-auto">
+			<div class="text-center mb-8 rise">
+				<span class="micro-label inline-flex items-center gap-2 bg-surface border border-line px-3 py-1.5 text-cream">
+					<i data-lucide="timer" class="w-3.5 h-3.5 text-lamp"></i>
+					Hora de provar
+				</span>
+				<h2 class="font-display text-3xl sm:text-4xl font-800 tracking-tight mt-4">Respire fundo. Vai dar bom.</h2>
+				<div class="mt-4" x-data={ fmt.Sprintf("quizTimer(%d)", s.ActiveQuizID) }>
+					<span class="micro-label inline-flex items-center gap-2 border border-line bg-surface2/60 px-3 py-1 text-muted" title="Tempo nesta prova">
+						<i data-lucide="hourglass" class="w-3.5 h-3.5 text-lamp"></i>
+						<span class="tabular-nums" x-text="label">00:00</span>
+					</span>
+				</div>
+			</div>
+			<div id="quiz-area" data-quiz-id={ strconv.FormatInt(s.ActiveQuizID, 10) }>
+				if hasAnswer(s, i) {
+					@ReviewedCard(baseURL, s.StudyID, i, q, s.Answers[i], total, i == total-1, standalone, s.Tutor[i])
+				} else {
+					@QuestionCard(baseURL, s.ActiveQuizID, i, q, total, standalone)
+				}
+			</div>
+			<p class="mt-5 hidden sm:block text-center text-[10px] uppercase tracking-[0.14em] text-muted/70">Teclado: 1–5 ou A–E alternativa · C I Q T confiança · Enter confirma</p>
+		</div>
+	}
+}
+
+// ExamBoard is the whole taking surface of an exam-simulation attempt:
+// countdown, question palette, delivery button and the current question card.
+// It is swapped into #quiz-area as one unit so every mutation refreshes the
+// palette and the timer together.
+templ ExamBoard(baseURL string, s *session.Session, i int, standalone bool) {
+	{{ total := len(s.Questions) }}
+	{{ answered := examAnsweredCount(s) }}
+	{{ flagged := examFlaggedCount(s) }}
+	{{ blank := total - answered }}
+	<div x-data={ fmt.Sprintf("examBoard(%d)", examRemainingSeconds(s)) }>
+		<div class="flex flex-wrap items-center justify-between gap-3 mb-5">
+			<span class="micro-label inline-flex items-center gap-2 border px-3 py-1.5"
+				:class="low ? 'border-coral bg-coral/10 text-coral' : 'border-line bg-surface2/60 text-muted'"
+				title="Tempo restante">
+				<i data-lucide="timer" class="w-3.5 h-3.5"></i>
+				<span class="tabular-nums text-sm" x-text="label">--:--</span>
+			</span>
+			<div class="flex items-center gap-2">
+				<span class="text-[11px] text-muted tabular-nums">{ strconv.Itoa(answered) } / { strconv.Itoa(total) } respondidas</span>
+				<button type="button" @click="open = !open" class="btn-secondary min-h-10 px-4 text-xs">
+					<i data-lucide="send" class="w-4 h-4"></i> Entregar prova
+				</button>
+			</div>
+		</div>
+
+		<div x-show="open" x-cloak @click.outside="open = false" class="rise ui-panel p-5 mb-5 border-lamp">
+			<span class="block text-sm font-800 text-cream mb-2">Entregar a prova agora?</span>
+			<p class="text-xs text-muted leading-relaxed mb-4">
+				{ strconv.Itoa(answered) } respondidas · { strconv.Itoa(flagged) } marcadas para revisão · { strconv.Itoa(blank) } em branco.
+				Questões em branco contam como erro — como no ENEM.
+			</p>
+			<div class="flex gap-2">
+				<button type="button" @click="open = false" class="btn-secondary flex-1 min-h-11 text-xs">Continuar na prova</button>
+				<button type="button" @click="submitExam()" class="btn-primary flex-1 min-h-11 text-xs">Entregar agora</button>
+			</div>
+		</div>
+
+		<div class="flex flex-wrap gap-1.5 mb-6" role="group" aria-label="Navegar entre questões">
+			for k := 0; k < total; k++ {
+				<button type="button" data-quiz-goto={ strconv.Itoa(k) }
+					hx-post={ quizAction(baseURL, "goto", standalone) }
+					hx-vals={ fmt.Sprintf(`{"index": "%d"}`, k) }
+					hx-target="#quiz-area" hx-swap="innerHTML"
+					aria-current={ templ.KV("true", k == i) }
+					title={ fmt.Sprintf("Questão %d", k+1) }
+					class={ "relative w-9 h-9 grid place-items-center border text-xs font-800 transition",
+						templ.KV("border-lamp text-lamp bg-lamp/10", k == i),
+						templ.KV("border-lamp bg-lamp text-ink", hasAnswer(s, k) && k != i),
+						templ.KV("border-line bg-ink text-muted hover:border-lamp/60", !hasAnswer(s, k) && k != i) }>
+					{ strconv.Itoa(k + 1) }
+					if flaggedAt(s, k) {
+						<span class="absolute -top-1 -right-1 w-2.5 h-2.5 bg-coral border border-ink" title="Marcada para revisão"></span>
+					}
+				</button>
+			}
+		</div>
+
+		@ExamQuestion(baseURL, s, i, standalone)
+
+		<form data-exam-deliver action={ quizAction(baseURL, "result", standalone) } method="post" class="mt-6">
+			<button type="submit" class="btn-secondary w-full min-h-12 text-sm">
+				<i data-lucide="send" class="w-4 h-4"></i>
+				Entregar prova{ " " }
+				if blank > 0 {
+					<span class="text-muted">({ strconv.Itoa(blank) } em branco)</span>
+				}
+			</button>
+		</form>
+	</div>
+}
+
+// ExamQuestion renders one question of an exam-simulation attempt: no
+// correctness feedback and no confidence axis — feedback only appears after
+// delivery, like in the real exam.
+templ ExamQuestion(baseURL string, s *session.Session, i int, standalone bool) {
+	{{ q := s.Questions[i] }}
+	{{ total := len(s.Questions) }}
+	{{ flagged := flaggedAt(s, i) }}
+	<div class="rise relative" x-data={ fmt.Sprintf("examCard(%d)", answerAt(s, i)) }>
+		<div class="flex items-center justify-between gap-3 mb-4">
+			<span class="text-sm font-800 tracking-wider text-lamp">QUESTÃO { qnum(i) } <span class="text-muted font-600">/ { strconv.Itoa(total) }</span></span>
+			<button type="button" data-quiz-flag
+				hx-post={ quizAction(baseURL, "flag", standalone) }
+				hx-vals={ fmt.Sprintf(`{"index": "%d"}`, i) }
+				hx-target="#quiz-area" hx-swap="innerHTML"
+				class={ "inline-flex items-center gap-1.5 border px-3 py-1.5 text-[11px] font-800 uppercase tracking-wider transition",
+					templ.KV("border-coral bg-coral/10 text-coral", flagged),
+					templ.KV("border-line bg-surface2/60 text-muted hover:border-coral/60", !flagged) }>
+				<i data-lucide="flag" class="w-3.5 h-3.5"></i>
+				if flagged {
+					<span>Marcada para revisão</span>
+				} else {
+					<span>Marcar para revisão</span>
+				}
+			</button>
+		</div>
+
+		<form data-quiz-answer-form hx-post={ quizAction(baseURL, "answer", standalone) } hx-target="#quiz-area" hx-swap="innerHTML">
+			<input type="hidden" name="index" value={ strconv.Itoa(i) }/>
+			<input type="hidden" name="answer" x-bind:value="selected"/>
+
+			<div class="relative ui-panel-flat p-5 sm:p-9 overflow-hidden">
+				<span class="absolute -top-8 -right-3 font-display text-[10rem] font-700 text-cream/[0.035] select-none leading-none pointer-events-none">{ qnum(i) }</span>
+
+				if q.Context != "" {
+					<div class="study quiz-context font-display italic text-[15px] text-muted leading-relaxed border-l-2 border-lamp/50 pl-4 mb-5" data-render>{ q.Context }</div>
+				}
+				@LearningElements(q.Elements)
+				<p class="relative text-cream text-lg sm:text-xl leading-relaxed font-500">{ q.Text }</p>
+
+				<div class="relative mt-7 space-y-2.5">
+					for oi, opt := range q.Options {
+						<button type="button" data-quiz-option
+							@click={ fmt.Sprintf("pick(%d)", oi) }
+							class="w-full min-h-12 text-left flex items-start gap-3.5 border border-line bg-ink px-4 py-3.5 transition-all duration-200 group hover:border-lamp hover:bg-lamp/5"
+							:class={ fmt.Sprintf("selected === %d ? '!border-lamp !bg-lamp/10 ring-2 ring-lamp/25' : ''", oi) }>
+							<span class="grid place-items-center w-8 h-8 bg-surface2 text-muted font-800 text-sm shrink-0 transition-all group-hover:text-lamp border border-line"
+								:class={ fmt.Sprintf("selected === %d ? '!bg-lamp !text-ink !border-lamp shadow-hard-lamp' : ''", oi) }>{ letter(oi) }</span>
+							<span class="text-cream/90 leading-relaxed pt-1">{ opt }</span>
+						</button>
+					}
+				</div>
+			</div>
+
+			<button type="submit" data-quiz-submit :disabled="selected === null"
+				class="btn-primary mt-5 w-full min-h-14 text-lg px-6 py-4 disabled:opacity-25 disabled:cursor-not-allowed disabled:shadow-none">
+				Confirmar resposta
+				<i data-lucide="arrow-right" class="w-5 h-5"></i>
+			</button>
+		</form>
+	</div>
+}
+
+templ quizHeader(i, total int) {
+	<div class="flex items-center justify-between mb-3">
+		<span class="text-sm font-800 tracking-wider text-lamp">QUESTÃO { qnum(i) } <span class="text-muted font-600">/ { strconv.Itoa(total) }</span></span>
+		<span class="flex items-center gap-1.5 text-xs text-muted">
+			<i data-lucide="graduation-cap" class="w-3.5 h-3.5"></i> Estilo ENEM
+		</span>
+	</div>
+	<div class="flex gap-1.5 mb-8">
+		for k := 0; k < total; k++ {
+			<span class={ "h-1.5 flex-1 rounded-none transition-all duration-500",
+				templ.KV("bg-lamp", k < i),
+				templ.KV("bg-lamp/70 animate-pulse", k == i),
+				templ.KV("bg-surface2", k > i) }></span>
+		}
+	</div>
+}
+
+// Confidence keyboard shortcuts: C=Chutei(1), I=Incerto(2), T=Tinha certeza(3),
+// Q=Quase certeza(4). The numeric values 3/4 look swapped, but they mirror the
+// diagnostics vocabulary — see session/diagnostics.go.
+templ QuestionCard(baseURL string, quizID int64, i int, q session.Question, total int, standalone bool) {
+	<div class="rise relative" x-data={ fmt.Sprintf("quizCard(%d, %d)", quizID, i) }>
+		@quizHeader(i, total)
+		<form data-quiz-answer-form hx-post={ quizAction(baseURL, "answer", standalone) } hx-target="#quiz-area" hx-swap="innerHTML">
+			<input type="hidden" name="index" value={ strconv.Itoa(i) }/>
+			<input type="hidden" name="answer" x-bind:value="selected"/>
+			<input type="hidden" name="confidence" x-bind:value="confidence || 0"/>
+
+			<div class="relative ui-panel-flat p-5 sm:p-9 overflow-hidden">
+				<span class="absolute -top-8 -right-3 font-display text-[10rem] font-700 text-cream/[0.035] select-none leading-none pointer-events-none">{ qnum(i) }</span>
+
+				if q.Context != "" {
+					<div class="study quiz-context font-display italic text-[15px] text-muted leading-relaxed border-l-2 border-lamp/50 pl-4 mb-5" data-render>{ q.Context }</div>
+				}
+				@LearningElements(q.Elements)
+				<p class="relative text-cream text-lg sm:text-xl leading-relaxed font-500">{ q.Text }</p>
+
+				<div class="relative mt-7 space-y-2.5">
+					for oi, opt := range q.Options {
+						<button type="button" data-quiz-option
+							@click={ fmt.Sprintf("pick(%d)", oi) }
+							class="w-full min-h-12 text-left flex items-start gap-3.5 border border-line bg-ink px-4 py-3.5 transition-all duration-200 group hover:border-lamp hover:bg-lamp/5"
+							:class={ fmt.Sprintf("selected === %d ? '!border-lamp !bg-lamp/10 ring-2 ring-lamp/25' : ''", oi) }>
+							<span class="grid place-items-center w-8 h-8 bg-surface2 text-muted font-800 text-sm shrink-0 transition-all group-hover:text-lamp border border-line"
+								:class={ fmt.Sprintf("selected === %d ? '!bg-lamp !text-ink !border-lamp shadow-hard-lamp' : ''", oi) }>{ letter(oi) }</span>
+							<span class="text-cream/90 leading-relaxed pt-1">{ opt }</span>
+						</button>
+					}
+				</div>
+
+				<div class="relative mt-7 border border-line bg-ink px-4 py-3.5">
+					<div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+						<span class="text-[11px] font-800 uppercase tracking-[0.16em] text-muted">Quanta certeza você tinha?</span>
+						<span class="text-[11px] text-muted">Ajuda a separar domínio de chute.</span>
+					</div>
+					<div class="grid grid-cols-2 sm:grid-cols-4 gap-2" role="group" aria-label="Confiança na resposta">
+						<button type="button" data-quiz-confidence="1" @click="setConfidence(1)" :class="confidence === 1 ? '!border-coral !bg-coral/10 !text-coral' : ''" class="min-h-12 border border-line bg-surface2/50 px-2 py-2 text-xs font-800 text-muted transition hover:border-coral">Chutei</button>
+						<button type="button" data-quiz-confidence="2" @click="setConfidence(2)" :class="confidence === 2 ? '!border-lamp !bg-lamp/10 !text-lamp' : ''" class="min-h-12 border border-line bg-surface2/50 px-2 py-2 text-xs font-800 text-muted transition hover:border-lamp">Incerto</button>
+						<button type="button" data-quiz-confidence="4" @click="setConfidence(4)" :class="confidence === 4 ? '!border-lamp !bg-lamp/10 !text-lamp' : ''" class="min-h-12 border border-line bg-surface2/50 px-2 py-2 text-xs font-800 text-muted transition hover:border-lamp">Quase certeza</button>
+						<button type="button" data-quiz-confidence="3" @click="setConfidence(3)" :class="confidence === 3 ? '!border-lamp !bg-lamp/10 !text-lamp' : ''" class="min-h-12 border border-line bg-surface2/50 px-2 py-2 text-xs font-800 text-muted transition hover:border-lamp">Tinha certeza</button>
+					</div>
+				</div>
+			</div>
+
+			<button type="submit" data-quiz-submit :disabled="selected === null || confidence === null"
+				class="btn-primary mt-5 w-full min-h-14 text-lg px-6 py-4 disabled:opacity-25 disabled:cursor-not-allowed disabled:shadow-none">
+				Confirmar resposta
+				<i data-lucide="arrow-right" class="w-5 h-5"></i>
+			</button>
+		</form>
+	</div>
+}
+
+templ ReviewedCard(baseURL string, studyID int64, i int, q session.Question, chosen, total int, isLast bool, standalone bool, thread []session.Message) {
+	<div class="rise relative">
+		@quizHeader(i, total)
+
+		if chosen == q.Correct {
+			<div class="pop flex items-center gap-3 border border-teal bg-teal/10 px-5 py-4 mb-6 shadow-hard">
+				<span class="grid place-items-center w-9 h-9 bg-teal text-ink shrink-0"><i data-lucide="check" class="w-5 h-5"></i></span>
+				<div>
+					<span class="font-800 text-teal block">Correto! Mandou bem.</span>
+					<span class="text-xs text-teal/80">Continue assim.</span>
+				</div>
+			</div>
+		} else {
+			<div class="pop flex items-center gap-3 border border-coral bg-coral/10 px-5 py-4 mb-6 shadow-hard">
+				<span class="grid place-items-center w-9 h-9 bg-coral text-ink shrink-0"><i data-lucide="x" class="w-5 h-5"></i></span>
+				<div>
+					<span class="font-800 text-coral block">Não foi dessa vez.</span>
+					<span class="text-xs text-coral/80">Sem crise — vamos revisar juntos.</span>
+				</div>
+			</div>
+		}
+
+		<div class="relative ui-panel-flat p-5 sm:p-9 overflow-hidden">
+			<span class="absolute -top-8 -right-3 font-display text-[10rem] font-700 text-cream/[0.035] select-none leading-none pointer-events-none">{ qnum(i) }</span>
+
+			if q.Context != "" {
+				<div class="study quiz-context font-display italic text-[15px] text-muted leading-relaxed border-l-2 border-lamp/50 pl-4 mb-5" data-render>{ q.Context }</div>
+			}
+			@LearningElements(q.Elements)
+			<p class="relative text-cream text-lg sm:text-xl leading-relaxed font-500">{ q.Text }</p>
+
+			<div class="relative mt-7 space-y-2.5">
+				for oi, opt := range q.Options {
+					<div class={ "w-full text-left flex items-start gap-3.5 border px-4 py-3.5 transition-all",
+						templ.KV("border-lamp bg-lamp/10", oi == q.Correct),
+						templ.KV("border-coral bg-coral/10", oi == chosen && chosen != q.Correct),
+						templ.KV("border-line bg-ink opacity-50", oi != q.Correct && oi != chosen) }>
+						<span class={ "grid place-items-center w-8 h-8 font-800 text-sm shrink-0 border",
+							templ.KV("bg-teal text-ink border-teal", oi == q.Correct),
+							templ.KV("bg-coral text-ink border-coral", oi == chosen && chosen != q.Correct),
+							templ.KV("bg-surface2 text-muted border-line", oi != q.Correct && oi != chosen) }>{ letter(oi) }</span>
+						<span class="text-cream/90 leading-relaxed pt-1">{ opt }</span>
+						if oi == q.Correct {
+							<i data-lucide="check" class="w-4 h-4 text-lamp ml-auto mt-2"></i>
+						}
+						if oi == chosen && chosen != q.Correct {
+							<i data-lucide="x" class="w-4 h-4 text-coral ml-auto mt-2"></i>
+						}
+					</div>
+				}
+			</div>
+
+			if q.Explanation != "" {
+				<div class="relative mt-6 bg-ink border border-lamp px-5 py-4">
+					<span class="flex items-center gap-2 text-[11px] font-800 uppercase tracking-[0.18em] text-lamp mb-2">
+						<i data-lucide="lightbulb" class="w-4 h-4"></i> Por quê?
+					</span>
+					<p class="text-cream/85 leading-relaxed text-[15px]">{ q.Explanation }</p>
+				</div>
+			}
+
+			<div class="relative mt-6 grid gap-2 sm:flex">
+				<form data-quiz-reanswer-form hx-post={ quizAction(baseURL, "reanswer", standalone) } hx-target="#quiz-area" hx-swap="innerHTML" class="flex-1">
+					<input type="hidden" name="index" value={ strconv.Itoa(i) }/>
+					<button type="submit" class="btn-secondary w-full min-h-12 text-sm"><i data-lucide="rotate-ccw" class="w-4 h-4"></i>Responder novamente</button>
+				</form>
+				if !standalone {
+					<a href={ quizTutorURL(studyID, q) } class="btn-secondary flex-1 min-h-12 text-sm"><i data-lucide="message-circle" class="w-4 h-4"></i>Perguntar ao tutor</a>
+				}
+			</div>
+			if standalone {
+				@tutorDrawer(baseURL, i, thread)
+			}
+		</div>
+
+		if isLast {
+			<form data-quiz-result-form action={ quizAction(baseURL, "result", standalone) } method="post">
+				<button type="submit" data-quiz-next
+					class="btn-primary mt-6 w-full min-h-14 text-lg px-6 py-4">
+					Ver resultado
+					<i data-lucide="bar-chart-3" class="w-5 h-5"></i>
+				</button>
+			</form>
+		} else {
+			<button data-quiz-next hx-post={ quizAction(baseURL, "next", standalone) } hx-target="#quiz-area" hx-swap="innerHTML"
+				class="btn-primary mt-6 w-full min-h-14 text-lg px-6 py-4">
+			Próxima questão
+			<i data-lucide="arrow-right" class="w-5 h-5"></i>
+		</button>
+	}
+	</div>
+}
+
+// TutorThread renders the stored tutor conversation for one question. It is
+// also the fragment returned by the tutor endpoint after each reply.
+templ TutorThread(thread []session.Message) {
+	if len(thread) == 0 {
+		<p class="text-xs text-muted leading-relaxed">Nenhuma mensagem ainda. Pergunte por que a alternativa certa é a certa, ou peça um jeito simples de lembrar do conteúdo.</p>
+	} else {
+		for _, m := range thread {
+			if m.Role == "user" {
+				<div class="ml-6 border border-line bg-surface2 px-3.5 py-2.5 text-sm text-cream/90 leading-relaxed whitespace-pre-line">{ m.Content }</div>
+			} else {
+				<div class="mr-6 border border-lamp/40 bg-lamp/5 px-3.5 py-2.5 text-sm text-cream/90 leading-relaxed whitespace-pre-line">{ m.Content }</div>
+			}
+		}
+	}
+}
+
+// tutorDrawer is the standalone-test tutor: an Alpine drawer anchored under
+// the question review. Threads persist on the quiz row (tutor_json).
+templ tutorDrawer(baseURL string, i int, thread []session.Message) {
+	<div class="relative mt-3" x-data={ fmt.Sprintf("tutorDrawer(%d, '%s')", i, quizAction(baseURL, "tutor", true)) }>
+		<button type="button" @click="open = !open" class="btn-secondary w-full min-h-12 text-sm">
+			<i data-lucide="message-circle" class="w-4 h-4"></i>Perguntar ao tutor
+		</button>
+		<div x-show="open" x-cloak class="mt-2 border border-line bg-ink shadow-hard">
+			<div class="flex items-center justify-between border-b border-line px-4 py-2.5">
+				<span class="micro-label text-lamp inline-flex items-center gap-2"><i data-lucide="graduation-cap" class="w-3.5 h-3.5"></i>Tutor da questão { qnum(i) }</span>
+				<button type="button" @click="open = false" class="grid place-items-center w-7 h-7 text-muted hover:text-coral transition" aria-label="Fechar tutor"><i data-lucide="x" class="w-4 h-4"></i></button>
+			</div>
+			<div data-tutor-thread class="max-h-72 overflow-y-auto space-y-2.5 px-4 py-3">
+				@TutorThread(thread)
+			</div>
+			<p x-show="busy" x-cloak class="flex items-center gap-1.5 px-4 pb-2">
+				<span class="tdot"></span><span class="tdot"></span><span class="tdot"></span>
+				<span class="text-[11px] text-muted ml-1">Tutor pensando…</span>
+			</p>
+			<p x-show="error" x-cloak x-text="error" class="px-4 pb-2 text-xs text-coral"></p>
+			<form @submit.prevent="send()" class="flex gap-2 border-t border-line px-4 py-3">
+				<input type="text" x-model="message" maxlength="4000" placeholder="Qual sua dúvida sobre esta questão?" class="input flex-1 min-h-11 text-sm"/>
+				<button type="submit" :disabled="busy || message.trim() === ''" class="btn-primary px-4 py-2 text-sm">Enviar <i data-lucide="send" class="w-4 h-4"></i></button>
+			</form>
+		</div>
+	</div>
+}
+
+templ Result(s *session.Session, score, total int, all bool, user *db.User, quota *db.Quota, isAdmin bool, baseURL string, standalone bool) {
+	@Layout(AuthedPageData("Resultado", "results", s.Config.Topic, user, quota, isAdmin)) {
+		<div class="pt-10 max-w-2xl mx-auto">
+			@resultBody(s, score, total, all, baseURL, standalone)
+		</div>
+	}
+}
+
+templ resultBody(s *session.Session, score, total int, all bool, baseURL string, standalone bool) {
+	<div class="text-center rise">
+		if all {
+			<span class="inline-grid place-items-center w-24 h-24 bg-teal/10 border border-teal text-teal mb-7 shadow-hard">
+				<i data-lucide="trophy" class="w-11 h-11"></i>
+			</span>
+			<h2 class="font-display text-5xl font-800 tracking-tight">Dominado.</h2>
+			<p class="text-muted text-lg mt-4 max-w-md mx-auto leading-relaxed">Você acertou todas as { strconv.Itoa(total) } questões. Esse conteúdo já é seu — bora pro próximo tema?</p>
+		} else {
+			<span class="inline-grid place-items-center w-24 h-24 bg-lamp/10 border border-lamp text-lamp mb-7 shadow-hard">
+				<i data-lucide="refresh-ccw" class="w-11 h-11"></i>
+			</span>
+			<h2 class="font-display text-5xl font-800 tracking-tight">Quase lá.</h2>
+			<p class="text-muted text-lg mt-4 max-w-md mx-auto leading-relaxed">Você acertou <span class="text-cream font-800">{ strconv.Itoa(score) }</span> de { strconv.Itoa(total) }. Vamos reforçar o que escapou e tentar de novo.</p>
+		}
+	</div>
+
+	<div class="mt-10 ui-panel-flat p-7 rise" style="animation-delay:.1s">
+		<div class="flex items-end justify-between mb-4">
+			<span class="text-[11px] font-800 uppercase tracking-[0.2em] text-muted">Seu desempenho</span>
+			<span class={ "font-display text-4xl font-800 leading-none",
+				templ.KV("text-teal", all),
+				templ.KV("text-lamp", !all) }>{ fmtScore(score, total) }</span>
+		</div>
+		<div class="h-3 bg-surface2 overflow-hidden">
+			<div class={ "h-full transition-all duration-1000",
+				templ.KV("bg-teal", all),
+				templ.KV("bg-lamp", !all) }
+				style={ fmt.Sprintf("width:%d%%", (score*100)/total) }></div>
+		</div>
+		<div class="mt-6 space-y-2.5">
+			for i, q := range s.Questions {
+				<div class="px-3 py-3 -mx-1 hover:bg-ink transition">
+					<div class="flex items-start gap-3 text-sm">
+						if isCorrect(s, i) {
+							<i data-lucide="check-circle-2" class="w-4 h-4 text-lamp shrink-0 mt-0.5"></i>
+						} else {
+							<i data-lucide="x-circle" class="w-4 h-4 text-coral shrink-0 mt-0.5"></i>
+						}
+						<span class={ "flex-1 min-w-0", templ.KV("text-cream/70", isCorrect(s, i)), templ.KV("text-cream", !isCorrect(s, i)) }>Questão { qnum(i) } — { q.Text }
+							if q.Skill != "" || q.Difficulty != "" {
+								<span class="block text-[10px] uppercase tracking-wider text-muted mt-1">
+									if q.Skill != "" {
+										<span>{ q.Skill }</span>
+									}
+									if q.Skill != "" && q.Difficulty != "" {
+										<span> · </span>
+									}
+									if q.Difficulty != "" {
+										<span>{ q.Difficulty }</span>
+									}
+								</span>
+							}
+							<span class="block text-[11px] text-muted mt-1">{ knowledgeSignal(s, i) } · confiança: { confidenceLabel(confidenceAt(s, i)) }</span>
+						</span>
+					</div>
+					<form action={ quizAction(baseURL, "diagnostic", standalone) } method="post" class="mt-2 flex flex-wrap items-center gap-2 pl-7">
+						<input type="hidden" name="index" value={ strconv.Itoa(i) }/>
+						<label class="text-[11px] text-muted" for={ fmt.Sprintf("assessment-%d", i) }>Se quiser, corrija o diagnóstico:</label>
+						<select id={ fmt.Sprintf("assessment-%d", i) } name="assessment" onchange="this.form.submit()" class="border border-line bg-surface2 px-2 py-1.5 text-[11px] text-cream">
+							<option value="" selected?={ assessmentSelected(assessmentAt(s, i), "") }>Ainda não classifiquei</option>
+							<option value="guess" selected?={ assessmentSelected(assessmentAt(s, i), "guess") }>Foi um chute</option>
+							<option value="attention" selected?={ assessmentSelected(assessmentAt(s, i), "attention") }>Foi desatenção</option>
+							<option value="did_not_know" selected?={ assessmentSelected(assessmentAt(s, i), "did_not_know") }>Eu não sabia</option>
+							<option value="other" selected?={ assessmentSelected(assessmentAt(s, i), "other") }>Outro motivo</option>
+						</select>
+					</form>
+					if standalone && !isCorrect(s, i) {
+						<div class="mt-2 pl-7">
+							@tutorDrawer(baseURL, i, s.Tutor[i])
+						</div>
+					}
+				</div>
+			}
+		</div>
+	</div>
+
+	if s.QuizMode == "ranked" {
+		<div class="mt-5 ui-panel-flat p-6 rise" style="animation-delay:.14s">
+			<div class="flex items-start gap-3">
+				<span class="grid place-items-center w-10 h-10 bg-lamp/15 text-lamp border border-lamp shrink-0"><i data-lucide="trophy" class="w-5 h-5"></i></span>
+				<div class="min-w-0 flex-1">
+					<span class="block micro-label text-lamp">Resultado ranqueado</span>
+					<p class="text-sm text-cream/85 mt-1">Sua nota foi normalizada e registrada publicamente.</p>
+					<div class="flex flex-wrap gap-2 mt-4">
+						<span class="border border-line bg-ink px-3 py-2 text-xs text-muted">Nota <strong class="text-cream">{ fmtCents(s.NormalizedScoreCents) }</strong> / 10</span>
+						<span class="border border-line bg-ink px-3 py-2 text-xs text-muted">Pontos <strong class="text-lamp">{ fmtCents(s.RankedScoreCents) }</strong></span>
+					</div>
+				</div>
+			</div>
+			<a href="/leaderboard" class="mt-4 inline-flex items-center gap-2 text-sm font-800 text-lamp hover:text-cream transition">Ver leaderboard <i data-lucide="arrow-up-right" class="w-4 h-4"></i></a>
+		</div>
+	}
+
+	@generationTrace(s)
+
+	<div class="mt-8 flex flex-col sm:flex-row gap-3 rise" style="animation-delay:.2s">
+		if standalone {
+			<a href={ testOverviewURL(s) } class="btn-primary flex-1 px-6 py-4 text-sm"><i data-lucide="refresh-cw" class="w-5 h-5"></i>Nova tentativa adaptativa</a>
+			<a href={ "/studies/new?topic=" + url.QueryEscape(s.Config.Topic) } class="btn-secondary flex-1 px-6 py-4 text-sm"><i data-lucide="book-open" class="w-5 h-5"></i>Estudar este tema</a>
+		} else if !all {
+			<form action={ studyBase(s.StudyID) + "/reset" } method="post" class="flex-1">
+				<button type="submit"
+					class="btn-primary w-full px-6 py-4 text-sm">
+					<i data-lucide="book-open" class="w-5 h-5"></i>
+					Revisar e estudar de novo
+				</button>
+			</form>
+		}
+		<a href={ quizHomeURL(standalone) }
+			class={ "flex-1 flex items-center justify-center gap-2 font-800 px-6 py-4 text-sm",
+				templ.KV("btn-primary", all),
+				templ.KV("btn-secondary", !all) }>
+			<i data-lucide="plus" class="w-5 h-5"></i>
+		if standalone {
+			<span>Minhas provas</span>
+		} else {
+			<span>Novo tema de estudo</span>
+		}
+		</a>
+	</div>
+}
+
+func confidenceAt(s *session.Session, i int) int {
+	if i >= 0 && i < len(s.Confidence) {
+		return s.Confidence[i]
+	}
+	return session.ConfidenceUnknown
+}
+
+func assessmentAt(s *session.Session, i int) string {
+	if i >= 0 && i < len(s.Assessments) {
+		return s.Assessments[i]
+	}
+	return session.AssessmentUnknown
+}
+
+templ generationTrace(s *session.Session) {
+	if s.Trace.Topic != "" || s.Trace.ResearchBrief != "" || len(s.Trace.Sources) > 0 {
+		<details class="mt-8 ui-panel-flat p-6 rise" style="animation-delay:.15s">
+			<summary class="cursor-pointer list-none flex items-center justify-between gap-4">
+				<span>
+					<span class="block text-[11px] font-800 uppercase tracking-[0.2em] text-lamp">Transparência da avaliação</span>
+					<span class="block text-sm text-cream/80 mt-1">Material, parâmetros e critérios usados para montar este teste</span>
+				</span>
+				<i data-lucide="chevron-down" class="w-4 h-4 text-muted"></i>
+			</summary>
+			<div class="mt-5 space-y-5 text-sm">
+				<div class="grid grid-cols-2 sm:grid-cols-5 gap-2">
+					<div class="bg-ink border border-line px-3 py-2"><span class="block text-[10px] uppercase tracking-wider text-muted">Tema</span><span class="text-cream">{ s.Trace.Topic }</span></div>
+					<div class="bg-ink border border-line px-3 py-2"><span class="block text-[10px] uppercase tracking-wider text-muted">Questões</span><span class="text-cream">{ strconv.Itoa(s.Trace.Count) }</span></div>
+					<div class="bg-ink border border-line px-3 py-2"><span class="block text-[10px] uppercase tracking-wider text-muted">Pesquisa</span><span class="text-cream">{ traceWebLabel(s.Trace.Web) }</span></div>
+					<div class="bg-ink border border-line px-3 py-2"><span class="block text-[10px] uppercase tracking-wider text-muted">Modelo</span><span class="text-cream break-all">{ s.Trace.Model }</span></div>
+					<div class="bg-ink border border-line px-3 py-2"><span class="block text-[10px] uppercase tracking-wider text-muted">Tokens</span><span class="text-cream">{ quizTokenLabel(s.Trace.TokenUsage) }</span></div>
+				</div>
+
+				if s.Trace.ResearchBrief != "" {
+					<div>
+						<h3 class="font-800 text-cream mb-2">Material de referência pesquisado</h3>
+						<div class="study text-sm leading-relaxed bg-ink border border-line px-4 py-3 max-h-80 overflow-y-auto" data-render>{ s.Trace.ResearchBrief }</div>
+					</div>
+				}
+
+				if len(s.Trace.Sources) > 0 {
+					<div>
+						<h3 class="font-800 text-cream mb-2">Fontes consultadas</h3>
+						<div class="space-y-2">
+							for _, source := range s.Trace.Sources {
+								if refURL := safeReferenceURL(source.URL); refURL != "" {
+									<a href={ refURL } target="_blank" rel="noopener noreferrer" class="block border border-line bg-ink px-3 py-2 hover:border-lamp transition">
+										<span class="block text-lamp font-800">{ source.Title }</span>
+										if source.Snippet != "" {
+											<span class="block text-xs text-muted mt-1">{ source.Snippet }</span>
+										}
+									</a>
+								}
+							}
+						</div>
+					</div>
+				}
+
+				<div class="grid sm:grid-cols-3 gap-4">
+					if len(s.Trace.AuthorCriteria) > 0 {
+						<div>
+							<h3 class="font-800 text-cream mb-2">Autoria</h3>
+							<ul class="study list-disc pl-5 text-xs text-muted space-y-1">
+								for _, item := range s.Trace.AuthorCriteria {
+									<li>{ item }</li>
+								}
+							</ul>
+						</div>
+					}
+					if len(s.Trace.ReviewCriteria) > 0 {
+						<div>
+							<h3 class="font-800 text-cream mb-2">Revisão</h3>
+							<ul class="study list-disc pl-5 text-xs text-muted space-y-1">
+								for _, item := range s.Trace.ReviewCriteria {
+									<li>{ item }</li>
+								}
+							</ul>
+						</div>
+					}
+					if len(s.Trace.EvaluationCriteria) > 0 {
+						<div>
+							<h3 class="font-800 text-cream mb-2">Leitura do resultado</h3>
+							<ul class="study list-disc pl-5 text-xs text-muted space-y-1">
+								for _, item := range s.Trace.EvaluationCriteria {
+									<li>{ item }</li>
+								}
+							</ul>
+						</div>
+					}
+				</div>
+			</div>
+		</details>
+	}
+}
+
+func traceWebLabel(web bool) string {
+	if web { return "Web + Tavily" }
+	return "Sem pesquisa web"
+}

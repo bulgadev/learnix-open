@@ -1,0 +1,62 @@
+package components
+
+import (
+	"strings"
+
+	"learnix/internal/db"
+)
+
+// versionSnippet collapses the version content into a single line and trims it
+// to the first 80 runes for the drawer preview.
+func versionSnippet(content string) string {
+	s := strings.Join(strings.Fields(content), " ")
+	if r := []rune(s); len(r) > 80 {
+		return string(r[:80]) + "…"
+	}
+	return s
+}
+
+templ VersionList(studyID, fileID int64, versions []db.FileVersion) {
+	{{ base := studyBase(studyID) + "/files/" + idStr(fileID) + "/versions" }}
+	<p class="px-4 py-3 text-[11px] leading-snug text-muted/80 border-b border-line">
+		Cada salvamento cria uma versão. Restaure para desfazer.
+	</p>
+	if len(versions) == 0 {
+		<p class="px-4 py-8 text-center text-xs text-muted/70">Nenhuma versão ainda.</p>
+	} else {
+		<ul class="divide-y divide-line">
+			for _, v := range versions {
+				<li class="px-4 py-3">
+					<div class="flex items-center gap-2 mb-1.5">
+						if v.Author == "ai" {
+							<span class="px-1.5 py-0.5 rounded-none text-[10px] font-800 bg-lamp/15 text-lamp border border-lamp/25">IA</span>
+						} else {
+							<span class="px-1.5 py-0.5 rounded-none text-[10px] font-800 bg-surface2 text-cream/80 border border-line">você</span>
+						}
+						<span class="text-[11px] text-muted/70">{ relTime(v.CreatedAt) }</span>
+					</div>
+					if v.Message != "" {
+						<p class="text-xs font-600 text-cream/85 mb-1">{ v.Message }</p>
+					}
+					<p class="text-[11px] text-muted/70 truncate mb-2">{ versionSnippet(v.Content) }</p>
+					<div class="flex items-center gap-1.5">
+						<button type="button"
+							hx-post={ base + "/" + idStr(v.ID) + "/restore" }
+							hx-target="#main-pane" hx-swap="innerHTML"
+							hx-confirm="Restaurar esta versão?"
+							class="btn-primary px-2.5 py-1 text-[11px]">
+							Restaurar
+						</button>
+						<button type="button"
+							hx-post={ base + "/" + idStr(v.ID) + "/branch" }
+							hx-target="#main-pane" hx-swap="innerHTML"
+							hx-confirm="Ramificar nota a partir desta versão?"
+							class="btn-secondary px-2.5 py-1 text-[11px]">
+							Ramificar nota
+						</button>
+					</div>
+				</li>
+			}
+		</ul>
+	}
+}

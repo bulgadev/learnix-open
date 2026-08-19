@@ -1,0 +1,39 @@
+package components
+
+import "learnix/internal/db"
+
+templ StudiesList(items []db.StudySummary, user *db.User, q *db.Quota, isAdmin bool) {
+	@Layout(AuthedPageData("Meus estudos", "", "", user, q, isAdmin)) {
+		<div class="pt-6 max-w-5xl mx-auto">
+			<div class="mb-8 rise">
+				<span class="micro-label inline-flex items-center gap-2 bg-surface border border-line px-3 py-1.5 text-cream">
+					<i data-lucide="library" class="w-3.5 h-3.5 text-lamp"></i>
+					Meus estudos
+				</span>
+				<h2 class="font-display text-3xl sm:text-4xl font-800 tracking-tight mt-3">Meus estudos.</h2>
+				<p class="text-muted text-sm mt-1.5">Cada tema é um espaço independente — retome qualquer um quando quiser.</p>
+			</div>
+
+			if len(items) == 0 {
+				<div class="ui-panel-flat p-10 text-center rise">
+					<span class="grid place-items-center w-14 h-14 mx-auto bg-surface2 text-muted border border-line mb-4">
+						<i data-lucide="book-plus" class="w-7 h-7"></i>
+					</span>
+					<p class="text-cream font-800">Você ainda não tem estudos.</p>
+					<p class="text-muted text-sm mt-1">Crie um estudo para vê-lo aqui.</p>
+					<a href="/"
+						class="btn-primary mt-6 px-5 py-3 text-sm uppercase tracking-[0.08em]">
+						Começar agora
+						<i data-lucide="arrow-right" class="w-4 h-4"></i>
+					</a>
+				</div>
+			} else {
+				<div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 stagger">
+					for _, s := range items {
+						@studyCard(s)
+					}
+				</div>
+			}
+		</div>
+	}
+}

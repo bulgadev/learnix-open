@@ -1,0 +1,3 @@
+-- Structured learning elements embedded in chat messages and workspace notes.
+-- Columns are added by db.ensureLearningElementColumns so this remains
+-- idempotent on both new and existing SQLite databases.

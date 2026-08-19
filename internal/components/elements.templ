@@ -1,0 +1,96 @@
+package components
+
+import (
+	"encoding/json"
+
+	"learnix/internal/elements"
+)
+
+func decodeElements(raw string) []elements.Element {
+	list, err := elements.Decode(raw)
+	if err != nil {
+		return nil
+	}
+	return list
+}
+
+func elementJSON(e elements.Element) string {
+	b, _ := json.Marshal(e)
+	return string(b)
+}
+
+templ LearningElements(list []elements.Element) {
+	if len(list) > 0 {
+		<div class="learning-elements space-y-4 mt-5">
+			for _, e := range list {
+				@learningElement(e)
+			}
+		</div>
+	}
+}
+
+templ learningElement(e elements.Element) {
+	if e.Type == elements.TableType {
+		<div class="learning-table-card border border-line bg-ink overflow-hidden" data-learning-element="table">
+			if e.Title != "" {
+				<div class="px-4 py-3 border-b border-line bg-surface2/60">
+					<h3 class="text-sm font-800 text-cream">{ e.Title }</h3>
+					if e.Caption != "" {
+						<p class="text-xs text-muted mt-1">{ e.Caption }</p>
+					}
+				</div>
+			}
+			<div class="overflow-x-auto">
+				<table class="learning-table w-full text-left text-sm">
+					<thead><tr>
+						for _, column := range e.Columns {
+							<th scope="col">{ column }</th>
+						}
+					</tr></thead>
+					<tbody>
+						for _, row := range e.Rows {
+							<tr>
+								for _, cell := range row {
+									<td>{ cell }</td>
+								}
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
+		</div>
+	} else if e.Type == elements.MindMapType {
+		<div class="learning-mind-map border border-line bg-ink overflow-hidden" data-learning-element="mind_map" data-mind-map>
+			<div class="flex items-center justify-between gap-3 px-4 py-3 border-b border-line bg-surface2/60">
+				<div>
+					<h3 class="text-sm font-800 text-cream">{ e.Title }</h3>
+					if e.Caption != "" {
+						<p class="text-xs text-muted mt-1">{ e.Caption }</p>
+					}
+				</div>
+				<div class="flex items-center gap-1" data-mind-map-controls>
+					<button type="button" data-mind-map-action="zoom-out" aria-label="Diminuir zoom" class="learning-map-button">−</button>
+					<button type="button" data-mind-map-action="reset" aria-label="Redefinir mapa" class="learning-map-button">⟳</button>
+					<button type="button" data-mind-map-action="zoom-in" aria-label="Aumentar zoom" class="learning-map-button">+</button>
+				</div>
+			</div>
+			<div class="learning-mind-map-viewport" data-mind-map-viewport tabindex="0" aria-label="Mapa mental interativo">
+				<svg class="learning-mind-map-svg" data-mind-map-svg role="img" aria-hidden="true"></svg>
+			</div>
+			<details class="border-t border-line px-4 py-3">
+				<summary class="cursor-pointer text-xs font-700 text-teal">Ver outline acessível</summary>
+				<ul class="mt-2 space-y-1 text-xs text-muted" data-mind-map-outline>
+					for _, node := range e.Nodes {
+						<li class="pl-2" data-parent={ node.ParentID }>
+							<span class="text-cream/90">{ node.Label }</span>
+							if node.Description != "" {
+								<span> — { node.Description }</span>
+							}
+						</li>
+					}
+				</ul>
+			</details>
+			<div class="hidden" data-mind-map-json>{ elementJSON(e) }</div>
+		</div>
+	}
+}

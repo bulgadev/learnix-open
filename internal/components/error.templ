@@ -1,0 +1,20 @@
+package components
+
+import "learnix/internal/db"
+
+templ ErrorPage(topic, title, detail string, user *db.User) {
+	@Layout(pageData("Erro", "", topic, user)) {
+		<div class="pt-16 max-w-lg mx-auto text-center rise">
+			<span class="inline-grid place-items-center w-20 h-20 bg-coral/15 text-coral border border-coral mb-6">
+				<i data-lucide="alert-triangle" class="w-10 h-10"></i>
+			</span>
+			<h2 class="font-display text-3xl font-800 tracking-tight">{ title }</h2>
+			<p class="text-muted mt-3 leading-relaxed break-words">{ detail }</p>
+			<div class="mt-8 flex flex-col sm:flex-row gap-3">
+				<a href="/" class="btn-secondary flex-1 px-6 py-3.5 text-sm uppercase tracking-[0.08em]">
+					<i data-lucide="arrow-left" class="w-5 h-5"></i> Voltar ao início
+				</a>
+			</div>
+		</div>
+	}
+}

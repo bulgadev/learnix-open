@@ -1,0 +1,47 @@
+package components
+
+templ LeaderboardPage(data PageData) {
+	@Layout(data) {
+		<div id="leaderboard-page" class="pt-8" data-leaderboard>
+			<div class="flex flex-col sm:flex-row sm:items-end justify-between gap-5 rise">
+				<div>
+					<span class="micro-label inline-flex items-center gap-2 bg-surface border border-line px-3 py-1.5 text-cream">
+						<i data-lucide="trophy" class="w-3.5 h-3.5 text-lamp"></i>
+						Competição
+					</span>
+					<h1 class="font-display text-4xl sm:text-5xl font-800 tracking-tight mt-3">Leaderboard</h1>
+					<p class="text-muted mt-3 max-w-2xl leading-relaxed">Compare seu ritmo de estudo com a comunidade. Os nomes são identificadores públicos — nenhum email aparece aqui.</p>
+				</div>
+				<div class="flex items-center border border-line bg-surface p-1 shrink-0" role="tablist" aria-label="Período do leaderboard">
+					<button type="button" data-period="all" class="bg-lamp text-ink px-3.5 py-2 text-xs font-800 transition">All-time</button>
+					<button type="button" data-period="month" class="text-muted hover:text-cream px-3.5 py-2 text-xs font-800 transition">Este mês</button>
+				</div>
+			</div>
+
+			<div class="mt-10 grid lg:grid-cols-3 gap-4">
+				@leaderboardCard("nota", "Nota", "Pontos ponderados acumulados", "medal", "text-lamp", "bg-lamp/10")
+				@leaderboardCard("quizzes", "Quizzes", "Testes ranqueados concluídos", "list-checks", "text-lamp", "bg-lamp/10")
+				@leaderboardCard("tokens", "Tokens", "Tokens de IA utilizados", "zap", "text-lamp", "bg-lamp/10")
+			</div>
+
+			<p data-leaderboard-error class="hidden mt-6 border border-coral bg-coral/10 text-coral px-4 py-3 text-sm"></p>
+		</div>
+	}
+}
+
+templ leaderboardCard(metric, title, description, icon, iconColor, iconBackground string) {
+	<section data-board={ metric } class="ui-panel-flat overflow-hidden rise">
+		<div class="flex items-center gap-3 px-5 py-4 border-b border-line">
+			<span class={ "grid place-items-center w-10 h-10 border border-line shrink-0", iconColor, iconBackground }>
+				<i data-lucide={ icon } class="w-5 h-5"></i>
+			</span>
+			<div class="min-w-0">
+				<h2 class="font-display text-xl font-800">{ title }</h2>
+				<p class="text-[11px] text-muted mt-0.5 truncate">{ description }</p>
+			</div>
+		</div>
+		<div data-board-body class="divide-y divide-line/70">
+			<div data-board-loading class="px-5 py-10 text-center text-xs text-muted">Carregando...</div>
+		</div>
+	</section>
+}

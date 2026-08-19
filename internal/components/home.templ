@@ -1,0 +1,172 @@
+package components
+
+import (
+	"strconv"
+
+	"learnix/internal/db"
+)
+
+templ Home(studies []db.StudySummary, user *db.User, q *db.Quota, isAdmin bool) {
+	@Layout(AuthedPageData("Início", "", "", user, q, isAdmin)) {
+		<div class="pt-8 lg:pt-12">
+			<div class="max-w-4xl">
+				<div class="stagger">
+					<span class="micro-label inline-flex items-center gap-2 bg-lamp text-ink px-3 py-1.5 border border-ink shadow-hard">
+						<i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+						Tutor guiado por IA
+					</span>
+
+					<h1 class="font-displayheavy uppercase leading-[0.92] tracking-[-0.02em] mt-7 text-[clamp(2.75rem,7vw,6.5rem)] text-cream">
+						Estude no seu ritmo.<br/>
+						<span class="bg-lamp text-ink px-3">Prove</span> que aprendeu.
+					</h1>
+
+					<p class="mt-6 text-muted text-lg max-w-2xl leading-relaxed">
+						Provas brutais criadas para voce na hora. Se voce passar por isso, voce esta preparado! 
+					</p>
+
+					<div class="ui-panel p-6 mt-8">
+						<div class="flex items-center justify-between border-b border-line pb-4">
+							<div>
+								<p class="micro-label text-lamp">Comece agora</p>
+								<h2 class="font-display text-2xl font-800 mt-1">Aprenda ou teste.</h2>
+							</div>
+							<span class="grid place-items-center w-12 h-12 bg-lamp text-ink border border-ink shadow-hard">
+								<i data-lucide="lamp-desk" class="w-6 h-6"></i>
+							</span>
+						</div>
+
+						<div class="mt-5 grid gap-3 sm:grid-cols-2">
+							<a href="/studies/new" class="group border border-line bg-surface2 p-4 hover:border-lamp">
+								<div class="flex items-start gap-3">
+									<span class="grid place-items-center w-10 h-10 bg-lamp text-ink shrink-0 border border-ink">
+										<i data-lucide="book-open" class="w-5 h-5"></i>
+									</span>
+									<div>
+										<p class="font-800 text-cream">Novo estudo</p>
+										<p class="text-sm text-muted mt-1 leading-relaxed">Material, chat, notas e provas no mesmo espaço.</p>
+									</div>
+								</div>
+							</a>
+							<a href="/tests/new" class="group border border-line bg-surface2 p-4 hover:border-lamp">
+								<div class="flex items-start gap-3">
+									<span class="grid place-items-center w-10 h-10 bg-lamp text-ink shrink-0 border border-ink">
+										<i data-lucide="clipboard-check" class="w-5 h-5"></i>
+									</span>
+
+									<div>
+										<p class="font-800 text-cream">Fazer prova</p>
+										<p class="text-sm text-muted mt-1 leading-relaxed">Teste seu nível direto e receba uma prova adaptativa.</p>
+									</div>
+								</div>
+							</a>
+						</div>
+
+						if q != nil && q.Exhausted() {
+							<p class="mt-4 text-xs text-coral flex items-center gap-1.5 border border-coral bg-coral/5 p-3">
+								<i data-lucide="alert-triangle" class="w-3.5 h-3.5 shrink-0"></i>
+
+								Sua cota de tokens acabou — peça ao administrador para aumentar seu limite.
+							</p>
+						}
+					</div>
+
+					<div class="mt-12 max-w-md">
+						@journeyStep("target", "1", "Escolha o tema", "Diga o que você quer aprender — a IA monta o material na hora.", true)
+						@journeyStep("book-open", "2", "Estudar", "Receba material sob demanda e peça explicações, exemplos e resumos no chat.", false)
+						@journeyStep("graduation-cap", "3", "Prove", "Encare questões de vestibular. Errou? Volte ao estudo e tente de novo.", false)
+					</div>
+				</div>
+			</div>
+
+			<div class="mt-20 lg:mt-24">
+				<div class="flex items-end justify-between mb-6">
+					<div>
+						<span class="micro-label inline-flex items-center gap-2 bg-surface border border-line px-3 py-1.5 text-cream">
+							<i data-lucide="library" class="w-3.5 h-3.5 text-lamp"></i>
+							Meus estudos
+						</span>
+						<h2 class="font-display text-3xl sm:text-4xl font-800 tracking-tight mt-3">Continue de onde parou.</h2>
+					</div>
+					if len(studies) > 0 {
+						<a href="/studies" class="hidden sm:inline-flex items-center gap-1.5 text-sm font-800 text-muted hover:text-lamp">
+							Ver todos
+							<i data-lucide="arrow-right" class="w-4 h-4"></i>
+						</a>
+					}
+				</div>
+
+				if len(studies) == 0 {
+					<div class="ui-panel-flat border-dashed p-10 text-center">
+						<span class="grid place-items-center w-14 h-14 mx-auto bg-surface2 text-muted border border-line mb-4">
+							<i data-lucide="book-plus" class="w-7 h-7"></i>
+						</span>
+						<p class="text-cream font-800">Nenhum estudo ainda.</p>
+						<p class="text-muted text-sm mt-1">Escolha um tema acima e acenda a luminária para começar.</p>
+					</div>
+				} else {
+					<div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 stagger">
+						for _, s := range studies {
+							@studyCard(s)
+						}
+					</div>
+				}
+			</div>
+		</div>
+	}
+}
+
+templ journeyStep(icon, num, title, desc string, first bool) {
+	<div class="relative flex gap-5 pb-8 last:pb-0 group">
+		if !first {
+			<span class="absolute left-[19px] -top-2 bottom-6 w-px bg-line"></span>
+		}
+		<span class="relative z-10 grid place-items-center w-10 h-10 bg-surface border border-line text-lamp shrink-0">
+			<i data-lucide={ icon } class="w-5 h-5"></i>
+		</span>
+		<div class="pt-0.5">
+			<h3 class="font-display text-lg font-800 flex items-center gap-2.5">
+				<span class="text-lamp/60 font-800 text-base">{ num }.</span> { title }
+			</h3>
+			<p class="text-sm text-muted leading-relaxed mt-1 max-w-sm">{ desc }</p>
+		</div>
+	</div>
+}
+
+func phaseLabel(phase string, reviewing bool) string {
+	if reviewing && phase == "study" {
+		return "Revisão"
+	}
+	switch phase {
+	case "quiz":
+		return "Questões"
+	case "results":
+		return "Concluído"
+	default:
+		return "Estudando"
+	}
+}
+
+func phaseLamp(phase string, reviewing bool) bool {
+	if reviewing && phase == "study" {
+		return true
+	}
+	return phase == "quiz"
+}
+
+templ studyCard(s db.StudySummary) {
+	<a href={ "/study/" + strconv.FormatInt(s.ID, 10) }
+		class="block border border-line bg-surface shadow-hard p-5 hover:border-lamp group">
+		<div class="flex items-center justify-between gap-3 mb-3">
+			<span class={ "text-[10px] font-800 uppercase tracking-wide border px-2 py-0.5",
+				templ.KV("text-lamp bg-lamp/10 border-lamp", phaseLamp(s.Phase, s.Reviewing)),
+				templ.KV("text-muted bg-surface2 border-line", !phaseLamp(s.Phase, s.Reviewing)) }>{ phaseLabel(s.Phase, s.Reviewing) }</span>
+			<span class="text-xs text-muted">{ s.UpdatedAt.Format("02/01 15:04") }</span>
+		</div>
+		<p class="text-cream font-700 line-clamp-2 group-hover:text-lamp transition">{ s.Topic }</p>
+		<span class="mt-3 inline-flex items-center gap-1.5 text-xs text-muted group-hover:text-lamp transition">
+			Abrir estudo
+			<i data-lucide="chevron-right" class="w-4 h-4"></i>
+		</span>
+	</a>
+}

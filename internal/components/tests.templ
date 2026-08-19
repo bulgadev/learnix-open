@@ -1,0 +1,73 @@
+package components
+
+import "learnix/internal/db"
+
+templ TestCreate(topic string, user *db.User, q *db.Quota, isAdmin bool) {
+	@Layout(AuthedPageData("Criar prova", "", "", user, q, isAdmin)) {
+		<div class="pt-8 max-w-3xl mx-auto">
+			<div class="rise">
+				<span class="micro-label inline-flex items-center gap-2 bg-surface border border-line px-3 py-1.5 text-cream">
+					<i data-lucide="clipboard-check" class="w-3.5 h-3.5 text-lamp"></i>
+					Nova prova
+				</span>
+				<h1 class="font-display text-4xl sm:text-5xl font-800 tracking-tight mt-4">Crie um teste para acompanhar.</h1>
+				<p class="text-muted text-lg mt-3 max-w-2xl">Primeiro você cria o teste. Depois, na página dele, decide quando iniciar cada tentativa e acompanha sua evolução.</p>
+			</div>
+			<form action="/tests" method="post" class="mt-9 ui-panel p-6 sm:p-8 rise">
+				<label class="block">
+					<span class="text-sm font-800 text-cream">Tema ou conteúdo</span>
+					<textarea name="topic" required maxlength="2000" rows="4" class="input mt-2 resize-none" placeholder="Ex.: Revolução Francesa, nível ENEM">{ topic }</textarea>
+				</label>
+				<div class="mt-7">
+					<span class="text-sm font-800 text-cream">Modo do teste</span>
+					<div class="grid sm:grid-cols-2 gap-3 mt-2">
+						<label class="cursor-pointer border border-line bg-surface2 p-4">
+							<input type="radio" name="mode" value="practice" checked class="mr-2 accent-lamp"/>
+							<strong class="text-cream">Prática</strong>
+							<span class="block text-xs text-muted mt-2">Resultado privado para entender seus pontos fracos.</span>
+						</label>
+						<label class="cursor-pointer border border-line bg-surface2 p-4">
+							<input type="radio" name="mode" value="ranked" class="mr-2 accent-lamp"/>
+							<strong class="text-cream">Ranqueada</strong>
+							<span class="block text-xs text-muted mt-2">Cada tentativa concluída conta para o leaderboard.</span>
+						</label>
+					</div>
+				</div>
+				<div class="mt-7">
+					<span class="text-sm font-800 text-cream">Tamanho das tentativas</span>
+					<div class="grid sm:grid-cols-3 gap-2 mt-2">
+						<label class="cursor-pointer border border-line bg-surface2 p-4 hover:border-lamp">
+							<input type="radio" name="preset" value="fast" class="mr-2 accent-lamp"/>
+							<strong class="block text-cream">Rápida</strong>
+							<span class="text-xs text-muted">~5 questões · 5 min</span>
+						</label>
+						<label class="cursor-pointer border border-lamp bg-lamp/5 p-4">
+							<input type="radio" name="preset" value="moderate" checked class="mr-2 accent-lamp"/>
+							<strong class="block text-cream">Moderada</strong>
+							<span class="text-xs text-muted">~10 questões · 15 min</span>
+						</label>
+						<label class="cursor-pointer border border-line bg-surface2 p-4 hover:border-lamp">
+							<input type="radio" name="preset" value="long" class="mr-2 accent-lamp"/>
+							<strong class="block text-cream">Longa</strong>
+							<span class="text-xs text-muted">~15 questões · 30 min</span>
+						</label>
+					</div>
+				</div>
+				<div class="mt-7">
+					<span class="text-sm font-800 text-cream">Experiência</span>
+					<label class="mt-2 flex items-start gap-3 cursor-pointer border border-line bg-surface2 p-4 hover:border-coral">
+						<input type="checkbox" name="exam" class="mt-1 accent-coral"/>
+						<span>
+							<strong class="text-cream">Simulado (estilo prova)</strong>
+							<span class="block text-xs text-muted mt-2">Navegação livre entre questões, marcar para revisão e cronômetro com tempo limite (5, 15 ou 30 min, conforme o tamanho). Certo/errado só aparece na entrega — em branco conta como erro.</span>
+						</span>
+					</label>
+				</div>
+				<div class="mt-7 flex flex-col-reverse sm:flex-row gap-2 sm:justify-between">
+					<a href="/tests" class="btn-secondary px-5 py-3 text-sm font-800 text-center">Voltar</a>
+					<button type="submit" class="btn-primary px-6 py-3 text-sm uppercase tracking-[0.08em]">Criar teste <i data-lucide="arrow-right" class="w-4 h-4 inline"></i></button>
+				</div>
+			</form>
+		</div>
+	}
+}

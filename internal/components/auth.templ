@@ -1,0 +1,100 @@
+package components
+
+templ LoginForm(err string) {
+	@Layout(PageData{Title: "Entrar"}) {
+		<div class="max-w-md mx-auto pt-16 rise">
+			<div class="mb-8">
+				<span class="grid place-items-center w-14 h-14 bg-lamp text-ink border border-ink shadow-hard mb-4">
+					<i data-lucide="lamp-desk" class="w-7 h-7"></i>
+				</span>
+				<h1 class="font-display text-3xl font-800 tracking-tight">Entrar</h1>
+				<p class="text-muted text-sm mt-1.5">Acesse suas provas e continue estudando.</p>
+			</div>
+
+			if err != "" {
+				<div class="mb-5 border border-coral bg-coral/10 text-coral text-sm px-4 py-3 flex items-center gap-2 rise">
+					<i data-lucide="alert-circle" class="w-4 h-4 shrink-0"></i>
+					<span>{ err }</span>
+				</div>
+			}
+
+			<form action="/login" method="post" class="space-y-4">
+				<label class="block">
+					<span class="text-xs font-700 text-muted mb-1.5 block">Email</span>
+					<input type="email" name="email" required autocomplete="email"
+						placeholder="voce@email.com"
+						class="input"/>
+				</label>
+				<label class="block">
+					<span class="text-xs font-700 text-muted mb-1.5 block">Senha</span>
+					<input type="password" name="password" required autocomplete="current-password"
+						placeholder="••••••••"
+						class="input"/>
+				</label>
+				<button type="submit"
+					class="btn-primary w-full px-6 py-3.5 text-sm uppercase tracking-[0.08em]">
+					Entrar
+					<i data-lucide="arrow-right" class="w-5 h-5"></i>
+				</button>
+			</form>
+
+			<p class="text-center text-sm text-muted mt-3">
+				Não tem conta? <a href="/register" class="text-lamp hover:underline font-700">Criar agora</a>
+			</p>
+		</div>
+	}
+}
+
+templ RegisterForm(err string) {
+	@Layout(PageData{Title: "Criar conta"}) {
+		<div class="max-w-md mx-auto pt-16 rise">
+			<div class="mb-8">
+				<span class="grid place-items-center w-14 h-14 bg-lamp text-ink border border-ink shadow-hard mb-4">
+					<i data-lucide="user-plus" class="w-7 h-7"></i>
+				</span>
+				<h1 class="font-display text-3xl font-800 tracking-tight">Criar conta</h1>
+				<p class="text-muted text-sm mt-1.5">Salve suas provas e estude quando quiser.</p>
+			</div>
+
+			if err != "" {
+				<div class="mb-5 border border-coral bg-coral/10 text-coral text-sm px-4 py-3 flex items-center gap-2 rise">
+					<i data-lucide="alert-circle" class="w-4 h-4 shrink-0"></i>
+					<span>{ err }</span>
+				</div>
+			}
+
+			<form action="/register" method="post" class="space-y-4">
+				<label class="block">
+					<span class="text-xs font-700 text-muted mb-1.5 block">Email</span>
+					<input type="email" name="email" required autocomplete="email"
+						placeholder="voce@email.com"
+						class="input"/>
+				</label>
+				<div class="grid grid-cols-2 gap-4">
+					<label class="block">
+						<span class="text-xs font-700 text-muted mb-1.5 block">Senha</span>
+						<input type="password" name="password" required autocomplete="new-password"
+							placeholder="mín. 8 caracteres"
+							class="input"/>
+					</label>
+					<label class="block">
+						<span class="text-xs font-700 text-muted mb-1.5 block">Confirmar</span>
+						<input type="password" name="confirm" required autocomplete="new-password"
+							placeholder="repita a senha"
+							class="input"/>
+					</label>
+				</div>
+				<button type="submit"
+					class="btn-primary w-full px-6 py-3.5 text-sm uppercase tracking-[0.08em]">
+					Criar conta
+					<i data-lucide="arrow-right" class="w-5 h-5"></i>
+				</button>
+			</form>
+
+			<p class="text-center text-sm text-muted mt-5">Você começa com 250.000 tokens.</p>
+			<p class="text-center text-sm text-muted mt-6">
+				Já tem conta? <a href="/login" class="text-lamp hover:underline font-700">Entrar</a>
+			</p>
+		</div>
+	}
+}

@@ -1,0 +1,26 @@
+# Build artifacts
+/tmp/twstix
+/tmp/twstix_tunnel.log
+
+# macOS
+.DS_Store
+
+# SQLite database
+twstix.db
+twstix.db-*
+*.db
+*.db-*
+
+# Secrets / env
+.env
+.env.*
+
+# Logs
+*.log
+
+# ulw-plan ephemeral drafts + opencode run-continuation
+.omo/drafts/
+.omo/run-continuation/
+
+# opencode codegraph cache
+.codegraph

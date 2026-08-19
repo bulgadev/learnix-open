@@ -1,0 +1,261 @@
+package components
+
+import (
+	"fmt"
+	"net/url"
+	"strings"
+	"time"
+
+	"learnix/internal/db"
+)
+
+func profileURL(slug string) string {
+	return "/profile/" + url.PathEscape(slug)
+}
+
+func profileAvatarURL(slug string) string {
+	return profileURL(slug) + "/avatar"
+}
+
+func profileScore(cents int64) string {
+	return strings.ReplaceAll(fmt.Sprintf("%.2f", float64(cents)/100), ".", ",")
+}
+
+func profilePercent(cents int64) string {
+	return strings.ReplaceAll(fmt.Sprintf("%.2f", float64(cents)/100), ".", ",") + "%"
+}
+
+func profileRankClasses(key string) string {
+	switch key {
+	case "bronze":
+		return "text-[#d69a61] bg-[#d69a61]/10 border-[#d69a61]/30"
+	case "prata":
+		return "text-[#c8d0d9] bg-[#c8d0d9]/10 border-[#c8d0d9]/30"
+	case "ouro":
+		return "text-lamp bg-lamp/10 border-lamp/30"
+	case "token-maxxer":
+		return "text-coral bg-coral/10 border-coral/30"
+	case "knowledge-maxer":
+		return "text-lamp bg-lamp/10 border-lamp"
+	case "study-maxer":
+		return "text-[#f7c948] bg-[#f7c948]/10 border-[#f7c948]/30"
+	default:
+		return "text-muted bg-surface2 border-line"
+	}
+}
+
+func profileUsernameStatus(profile db.Profile) string {
+	if profile.CanChangeUsername(time.Now().UTC()) {
+		return "Disponível para troca neste mês."
+	}
+	last := profile.SlugChangedAt.UTC()
+	next := time.Date(last.Year(), last.Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, 1, 0)
+	return "Próxima troca em " + next.Format("02/01/2006") + "."
+}
+
+func profileStatFields() []db.ProfileVisibilityField {
+	var fields []db.ProfileVisibilityField
+	for _, field := range db.ProfileVisibilityFields() {
+		switch field.Key {
+		case db.ProfileVisibilityDisplayName, db.ProfileVisibilityAvatar, db.ProfileVisibilityBio,
+			db.ProfileVisibilityRank, db.ProfileVisibilityAverageScore:
+			continue
+		default:
+			fields = append(fields, field)
+		}
+	}
+	return fields
+}
+
+func profileStatValue(profile db.ProfileView, key string) string {
+	stats := profile.Stats
+	switch key {
+	case db.ProfileVisibilityRankedQuizzes:
+		return fmtTokens(stats.RankedQuizCount)
+	case db.ProfileVisibilityQuizzesCompleted:
+		return fmtTokens(stats.QuizzesCompleted)
+	case db.ProfileVisibilityQuizzesStarted:
+		return fmtTokens(stats.QuizzesStarted)
+	case db.ProfileVisibilityStudiesCreated:
+		return fmtTokens(stats.StudiesCreated)
+	case db.ProfileVisibilityStudyResets:
+		return fmtTokens(stats.StudyResets)
+	case db.ProfileVisibilityQuestionsAnswered:
+		return fmtTokens(stats.QuestionsAnswered)
+	case db.ProfileVisibilityCorrectAnswers:
+		return fmtTokens(stats.CorrectAnswers)
+	case db.ProfileVisibilityAccuracy:
+		if stats.QuestionsAnswered == 0 {
+			return "—"
+		}
+		return profilePercent(stats.AccuracyCents)
+	case db.ProfileVisibilityDiagnosticsSubmitted:
+		return fmtTokens(stats.DiagnosticsSubmitted)
+	case db.ProfileVisibilityChatTurns:
+		return fmtTokens(stats.ChatTurns)
+	case db.ProfileVisibilityAICalls:
+		return fmtTokens(stats.AICalls)
+	case db.ProfileVisibilityTokensUsed:
+		return fmtTokens(stats.TokensUsed)
+	case db.ProfileVisibilityGenerationFailures:
+		return fmtTokens(stats.QuizGenerationFailures)
+	default:
+		return "—"
+	}
+}
+
+templ ProfilePage(data PageData, profile db.ProfileView, owner bool, csrf, notice string) {
+	@Layout(data) {
+		<div x-data="{ editing: false }" @keydown.escape.window="editing = false" class="pt-8 max-w-5xl mx-auto">
+			<div class="flex flex-col sm:flex-row sm:items-end justify-between gap-5 rise">
+				<div class="flex items-center gap-4 min-w-0">
+					if profile.Visible(db.ProfileVisibilityAvatar, owner) && len(profile.Details.AvatarData) > 0 {
+						<img src={ profileAvatarURL(profile.Profile.Slug) } alt={ "Foto de " + profile.PublicName(owner) }
+							class="w-20 h-20 rounded-none object-cover border border-line shadow-hard shrink-0"/>
+					} else {
+						<span class="grid place-items-center w-20 h-20 bg-lamp text-ink border border-ink shadow-hard shrink-0">
+							<i data-lucide="user-round" class="w-9 h-9"></i>
+						</span>
+					}
+					<div class="min-w-0">
+						<span class="micro-label inline-flex items-center gap-2 bg-surface border border-line px-3 py-1.5 text-cream mb-3">
+							<i data-lucide="id-card" class="w-3.5 h-3.5 text-lamp"></i>
+							Perfil público
+						</span>
+						<h1 class="font-display text-4xl sm:text-5xl font-800 tracking-tight truncate">{ profile.PublicName(owner) }</h1>
+						<p class="text-muted text-sm mt-1.5 truncate">{ profile.Profile.Slug }</p>
+					</div>
+				</div>
+				if owner {
+					<button type="button" @click="editing = true"
+						class="btn-primary px-4 py-3 text-sm uppercase tracking-[0.08em]">
+						<i data-lucide="pencil" class="w-4 h-4"></i>
+						Editar perfil
+					</button>
+				}
+			</div>
+
+			if notice != "" {
+				<div class="mt-6 rounded-none border border-lamp bg-lamp/10 text-lamp text-sm px-4 py-3 flex items-center gap-2 pop">
+					<i data-lucide="check-circle" class="w-4 h-4 shrink-0"></i>
+					{ notice }
+				</div>
+			}
+
+			<div class="grid lg:grid-cols-[1.15fr_.85fr] gap-4 mt-10">
+				<section class="ui-panel-flat p-6 sm:p-8 rise">
+					<div class="micro-label text-muted mb-4">
+						<i data-lucide="quote" class="w-3.5 h-3.5 text-lamp"></i>
+						Sobre
+					</div>
+					if profile.Visible(db.ProfileVisibilityBio, owner) && strings.TrimSpace(profile.Details.Bio) != "" {
+						<p class="text-cream/90 leading-relaxed whitespace-pre-wrap">{ profile.Details.Bio }</p>
+					} else {
+						<p class="text-muted text-sm">Este perfil ainda não tem uma bio pública.</p>
+					}
+				</section>
+
+				<section class="ui-panel-flat p-6 sm:p-8 rise" style="animation-delay:.08s">
+					<div class="flex items-center justify-between gap-3 mb-5">
+						<div class="micro-label text-muted">
+							<i data-lucide="trophy" class="w-3.5 h-3.5 text-lamp"></i>
+							Rank
+						</div>
+						if profile.Visible(db.ProfileVisibilityRank, owner) {
+							<span class={ "inline-flex items-center rounded-none border px-3 py-1 text-xs font-800", profileRankClasses(profile.Rank.Key) }>{ profile.Rank.Label }</span>
+						}
+					</div>
+					if profile.Visible(db.ProfileVisibilityRank, owner) {
+						<p class="font-display text-3xl font-800">{ profile.Rank.Label }</p>
+						if profile.Rank.QuizCount < 5 {
+							<p class="text-muted text-xs mt-2">{ fmtTokens(5-profile.Rank.QuizCount) } quizzes ranqueados até a próxima avaliação.</p>
+						}
+					} else {
+						<p class="text-muted text-sm">Rank oculto pelo dono do perfil.</p>
+					}
+					if profile.Visible(db.ProfileVisibilityAverageScore, owner) {
+						<div class="mt-6 pt-5 border-t border-line flex items-end justify-between gap-4">
+							<span class="text-xs text-muted">Média ranqueada</span>
+							if profile.Rank.QuizCount > 0 {
+								<strong class="font-display text-2xl text-lamp">{ profileScore(profile.Rank.AverageScoreCents) }</strong>
+							} else {
+								<strong class="font-display text-2xl text-muted">—</strong>
+							}
+						</div>
+					}
+				</section>
+			</div>
+
+			<section class="mt-10 rise" style="animation-delay:.12s">
+				<div class="flex items-end justify-between gap-4 mb-5">
+					<div>
+						<span class="micro-label inline-flex items-center gap-2 bg-surface border border-line px-3 py-1.5 text-cream mb-3">
+							<i data-lucide="bar-chart-3" class="w-3.5 h-3.5 text-lamp"></i>
+							Estatísticas
+						</span>
+						<h2 class="font-display text-2xl sm:text-3xl font-800 tracking-tight">Ritmo de aprendizado</h2>
+					</div>
+				</div>
+				<div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+					for _, field := range profileStatFields() {
+						if profile.Visible(field.Key, owner) {
+							<div class="ui-panel-flat p-4">
+								<p class="text-[11px] uppercase tracking-[0.12em] text-muted truncate">{ field.Label }</p>
+								<p class="font-display text-2xl font-800 text-cream mt-2">{ profileStatValue(profile, field.Key) }</p>
+							</div>
+						}
+					}
+				</div>
+			</section>
+
+			if owner {
+				<div x-show="editing" x-cloak class="fixed inset-0 z-50 grid place-items-center bg-ink/95 p-4" role="dialog" aria-modal="true" aria-label="Editar perfil">
+					<div @click.outside="editing = false" class="w-full max-w-2xl max-h-[90vh] overflow-y-auto ui-panel p-6 sm:p-8 pop">
+						<div class="flex items-start justify-between gap-4 mb-6">
+							<div>
+								<h2 class="font-display text-2xl font-800">Editar perfil</h2>
+								<p class="text-muted text-sm mt-1">Escolha o que a comunidade pode ver.</p>
+							</div>
+							<button type="button" @click="editing = false" class="grid place-items-center w-9 h-9 border border-line text-muted hover:text-cream hover:bg-surface2 transition" aria-label="Fechar">
+								<i data-lucide="x" class="w-4 h-4"></i>
+							</button>
+						</div>
+						<form action={ profileURL(profile.Profile.Slug) } method="post" enctype="multipart/form-data" class="space-y-5">
+							<input type="hidden" name="csrf" value={ csrf }/>
+							<div class="grid sm:grid-cols-[auto_1fr] gap-5 items-center">
+								if len(profile.Details.AvatarData) > 0 {
+									<img src={ profileAvatarURL(profile.Profile.Slug) } alt="Sua foto atual" class="w-20 h-20 rounded-none object-cover border border-line"/>
+								} else {
+									<span class="grid place-items-center w-20 h-20 rounded-none bg-surface2 text-muted border border-line"><i data-lucide="user-round" class="w-8 h-8"></i></span>
+								}
+								<div class="space-y-2">
+									<label class="block text-xs font-700 text-muted">Nova foto <input type="file" name="avatar" accept="image/png,image/jpeg,image/webp" class="block mt-1.5 text-sm text-cream file:mr-3 file:rounded-none file:border-0 file:bg-lamp/15 file:text-lamp file:px-3 file:py-1.5 file:font-700"/></label>
+									<label class="inline-flex items-center gap-2 text-xs text-muted"><input type="checkbox" name="remove_avatar" class="accent-lamp"/> Remover foto atual</label>
+								</div>
+							</div>
+							<label class="block">
+								<span class="text-xs font-700 text-muted mb-1.5 block">Usuário público</span>
+								<input type="text" name="username" maxlength={ fmt.Sprintf("%d", db.PublicUsernameMaxLength) } value={ profile.Profile.Username } placeholder="seu-usuario" autocomplete="username" class="input"/>
+								<p class="text-[11px] text-muted mt-1.5">Atual: <strong class="text-cream/80">{ profile.Profile.Slug }</strong> · { profileUsernameStatus(profile.Profile) }</p>
+							</label>
+							<label class="block"><span class="text-xs font-700 text-muted mb-1.5 block">Nome público</span><input type="text" name="display_name" maxlength="60" value={ profile.Details.DisplayName } placeholder={ profile.Profile.Slug } class="input"/></label>
+							<label class="block"><span class="text-xs font-700 text-muted mb-1.5 block">Bio</span><textarea name="bio" maxlength="280" rows="4" placeholder="Conte um pouco sobre sua jornada de estudos..." class="input resize-none">{ profile.Details.Bio }</textarea></label>
+							<div>
+								<p class="text-xs font-700 text-muted mb-2">Campos visíveis</p>
+								<div class="grid sm:grid-cols-2 gap-2 border border-line bg-ink p-3">
+									for _, field := range db.ProfileVisibilityFields() {
+										<label class="flex items-center gap-2 px-2 py-1.5 text-xs text-cream/80 hover:bg-surface2 transition"><input type="checkbox" name={ "visible_" + field.Key } checked?={ profile.Details.Visibility[field.Key] } class="accent-lamp"/> { field.Label }</label>
+									}
+								</div>
+							</div>
+							<div class="flex justify-end gap-2 pt-2">
+								<button type="button" @click="editing = false" class="btn-secondary px-4 py-2.5 text-sm">Cancelar</button>
+								<button type="submit" class="btn-primary px-4 py-2.5 text-sm"><i data-lucide="save" class="w-4 h-4"></i> Salvar perfil</button>
+							</div>
+						</form>
+					</div>
+				</div>
+			}
+		</div>
+	}
+}

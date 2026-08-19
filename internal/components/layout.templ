@@ -1,0 +1,575 @@
+package components
+
+import (
+	"fmt"
+	"strconv"
+	"strings"
+
+	"learnix/internal/db"
+)
+
+// Debug is set by main when the server runs in debug mode; the layout exposes
+// it to the browser as the body data-debug attribute.
+var Debug bool
+
+// BuildVersion identifies the server release rendered into the page. It is
+// set from LEARNIX_BUILD_VERSION at startup and used by the browser to spot
+// an application update while a page remains open.
+var BuildVersion = "dev"
+
+func stepActive(phase, step string) bool {
+	order := map[string]int{"setup": 0, "study": 1, "quiz": 2, "results": 2}
+	return order[phase] >= order[step]
+}
+
+func navActive(data PageData, path string) bool {
+	if path == "/" {
+		return data.Title == "Início"
+	}
+	if path == "/studies" {
+		return data.Title == "Meus estudos" || data.Title == "Estudos e provas" || data.Title == "Novo estudo"
+	}
+	if path == "/tests" {
+		return data.Title == "Minhas provas" || data.Title == "Criar prova" || data.Title == "Meu teste" || data.Title == "Prova" || data.Title == "Resultado"
+	}
+	if path == "/leaderboard" {
+		return data.Title == "Leaderboard" || data.Title == "Ranking"
+	}
+	return false
+}
+
+type PageData struct {
+	Title     string
+	Phase     string
+	Topic     string
+	UserEmail string
+	UserSlug  string
+	IsAuthed  bool
+	IsAdmin   bool
+	// HasQuota reports whether the user has a quota row; Remaining is their
+	// remaining token allowance (clamped at zero for display).
+	HasQuota     bool
+	Remaining    int64
+	LifetimeUsed int64
+	Mobile      MobileStudyState
+}
+
+// MobileStudyState contains the small amount of server-provided context the
+// mobile shell needs. Pane selection remains device-local; quiz progress stays
+// durable in SQLite and is deliberately not duplicated here.
+type MobileStudyState struct {
+	StudyID       int64
+	Pane          string
+	Prompt        string
+	HasActiveQuiz bool
+	QuizCurrent   int
+	QuizTotal     int
+}
+
+func studyPageData(title, phase, topic string, user *db.User, q *db.Quota, isAdmin bool, studyID int64, state MobileStudyState) PageData {
+	pd := AuthedPageData(title, phase, topic, user, q, isAdmin)
+	state.StudyID = studyID
+	pd.Mobile = state
+	return pd
+}
+
+func pageData(title, phase, topic string, user *db.User) PageData {
+	pd := PageData{Title: title, Phase: phase, Topic: topic}
+	if user != nil {
+		pd.UserEmail = user.Email
+		pd.UserSlug = user.PublicSlug
+		pd.IsAuthed = true
+	}
+	return pd
+}
+
+// AuthedPageData builds PageData for pages served to a logged-in user,
+// including their remaining token allowance and admin status.
+func AuthedPageData(title, phase, topic string, user *db.User, q *db.Quota, isAdmin bool) PageData {
+	pd := pageData(title, phase, topic, user)
+	pd.IsAdmin = isAdmin
+	if q != nil {
+		pd.HasQuota = true
+		pd.Remaining = q.Quota - q.Used
+		if pd.Remaining < 0 {
+			pd.Remaining = 0
+		}
+		pd.LifetimeUsed = q.LifetimeUsed
+	}
+	return pd
+}
+
+// fmtTokens formats a token count with pt-BR thousands dots (12345 → 12.345).
+func fmtTokens(n int64) string {
+	s := strconv.FormatInt(n, 10)
+	var b strings.Builder
+	for i, c := range s {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			b.WriteByte('.')
+		}
+		b.WriteRune(c)
+	}
+	return b.String()
+}
+
+templ Layout(data PageData) {
+	<!DOCTYPE html>
+	<html lang="pt-BR">
+		<head>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<meta name="learnix-build" content={ BuildVersion }/>
+			<title>{ data.Title } · Learnix</title>
+			<!-- Vendor JS is self-hosted and pinned (static/vendor) to avoid
+			     CDN supply-chain risk; keep versions in sync with docs. -->
+			<script src="/static/vendor/tailwind.js"></script>
+			<script src="/static/tw-config.js"></script>
+			<link rel="preconnect" href="https://fonts.googleapis.com"/>
+			<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+			<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Schibsted+Grotesk:wght@500;600;700;800;900&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+			<script src="/static/vendor/lucide.min.js"></script>
+			<script src="/static/vendor/marked.umd.js"></script>
+			<script src="/static/vendor/purify.min.js"></script>
+			<script src="/static/vendor/htmx.min.js"></script>
+			<script src="/static/elements.js"></script>
+			<script src="/static/mind-map.js"></script>
+			<script src={ "/static/app.js?build=" + BuildVersion }></script>
+			<script defer src="/static/vendor/alpine-collapse.min.js"></script>
+			<script defer src="/static/vendor/alpine.min.js"></script>
+			<style>
+				html { scroll-behavior: smooth; }
+				body { font-feature-settings: "ss01","cv01"; }
+				[x-cloak] { display: none !important; }
+
+				/* ---- movimento essencial ---- */
+				@keyframes fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+				.rise { animation: fadeUp .35s ease-out both; }
+				@keyframes scaleIn { from { opacity: 0; transform: scale(.98); } to { opacity: 1; transform: none; } }
+				.pop { animation: scaleIn .22s ease-out both; }
+				.stagger > * { animation: fadeUp .35s ease-out both; }
+				.stagger > *:nth-child(1){animation-delay:.03s} .stagger > *:nth-child(2){animation-delay:.06s}
+				.stagger > *:nth-child(3){animation-delay:.09s} .stagger > *:nth-child(4){animation-delay:.12s}
+				.stagger > *:nth-child(5){animation-delay:.15s} .stagger > *:nth-child(6){animation-delay:.18s}
+				.stagger > *:nth-child(7){animation-delay:.21s} .stagger > *:nth-child(8){animation-delay:.24s}
+
+				@keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
+				.cursor::after { content: "▍"; color: #f0b429; animation: blink 1s step-end infinite; margin-left: 1px; }
+				@keyframes bounceDot { 0%,80%,100% { transform: scale(.5); opacity:.35;} 40% { transform: scale(1); opacity:1;} }
+				.tdot { width: 7px; height: 7px; background: #f0b429; animation: bounceDot 1.2s ease-in-out infinite; }
+				.tdot:nth-child(2){animation-delay:.15s} .tdot:nth-child(3){animation-delay:.3s}
+
+				.no-scrollbar::-webkit-scrollbar { display: none; }
+				.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+				/* ---- sistema brutalista ---- */
+				.ui-panel { background: #12141a; border: 1px solid rgba(255,255,255,.16); box-shadow: 4px 4px 0 0 #000; }
+				.ui-panel-flat { background: #12141a; border: 1px solid rgba(255,255,255,.16); }
+				.micro-label { font-size: 11px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+				.btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: .5rem; background: #f0b429; color: #0b0c10; border: 1px solid #0b0c10; box-shadow: 4px 4px 0 0 #000; font-weight: 800; }
+				.btn-primary:hover { background: #f7c948; }
+				.btn-secondary { display: inline-flex; align-items: center; justify-content: center; gap: .5rem; background: #12141a; color: #ece9e2; border: 1px solid rgba(255,255,255,.16); font-weight: 700; }
+				.btn-secondary:hover { border-color: #f0b429; color: #f0b429; }
+				.btn-ghost { display: inline-flex; align-items: center; justify-content: center; gap: .5rem; color: #8f8d86; font-weight: 700; }
+				.btn-ghost:hover { color: #f0b429; }
+				.input { width: 100%; background: #0b0c10; border: 1px solid rgba(255,255,255,.16); color: #ece9e2; outline: none; padding: .7rem .85rem; }
+				.input:focus { border-color: #f0b429; box-shadow: 0 0 0 2px rgba(240,180,41,.12); }
+				.nav-link { display: inline-flex; align-items: center; justify-content: center; gap: .45rem; color: #8f8d86; border: 0; font-weight: 800; }
+				.nav-link:hover { color: #f0b429; }
+				.nav-link-active { background: #f0b429; color: #0b0c10; }
+
+				/* ---- markdown do material de estudo ---- */
+				.study { font-size: 1rem; overflow-wrap: anywhere; }
+				.study h1 { font-family: 'Schibsted Grotesk', sans-serif; font-size: 1.85rem; line-height: 1.18; font-weight: 800; color: #ece9e2; margin: 1.6rem 0 .7rem; letter-spacing: -.02em; }
+				.study h2 { font-family: 'Schibsted Grotesk', sans-serif; font-size: 1.4rem; font-weight: 800; color: #ece9e2; margin: 1.5rem 0 .6rem; letter-spacing: -.02em; }
+				.study h3 { font-family: 'Schibsted Grotesk', sans-serif; font-size: 1.12rem; font-weight: 800; color: #f0b429; margin: 1.15rem 0 .4rem; }
+				.study h2:first-child, .study h3:first-child { margin-top: 0; }
+				.study p { margin: .6rem 0; line-height: 1.78; color: #cfccc4; }
+				.study ul, .study ol { margin: .6rem 0 .6rem 1.3rem; color: #cfccc4; line-height: 1.72; }
+				.study ul { list-style: disc; } .study ol { list-style: decimal; }
+				.study li { margin: .3rem 0; }
+				.study li::marker { color: #f0b429; }
+				.study strong { color: #f7c948; font-weight: 800; }
+				.study code { background: #1c1f27; padding: .1rem .4rem; font-size: .85em; color: #f0b429; }
+				.study pre { background: #0b0c10; border: 1px solid rgba(255,255,255,.16); padding: 1rem; overflow-x: auto; margin: .8rem 0; }
+				.study pre code { background: none; padding: 0; color: #cfccc4; }
+				.study blockquote { border-left: 4px solid #f0b429; padding-left: 1rem; margin: .9rem 0; color: #a8a69e; font-style: italic; }
+				.study table { width: 100%; border-collapse: collapse; margin: .8rem 0; }
+				.study th, .study td { border: 1px solid rgba(255,255,255,.16); padding: .5rem .7rem; text-align: left; }
+				.study th, .study td { overflow-wrap: normal; word-break: normal; }
+				.study th { background: #1c1f27; color: #ece9e2; }
+				.study a { color: #f0b429; text-decoration: underline; }
+				.quiz-context { overflow-wrap: anywhere; }
+				.quiz-context table { display: block; max-width: 100%; overflow-x: auto; white-space: normal; }
+				.quiz-context p:first-child { margin-top: 0; }
+				.learning-table { border-collapse: collapse; min-width: 520px; }
+				.learning-table th { background: #1c1f27; color: #ece9e2; font-size: .7rem; letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; }
+				.learning-table th, .learning-table td { border-bottom: 1px solid rgba(255,255,255,.16); padding: .7rem .85rem; vertical-align: top; }
+				.learning-table tbody tr:last-child td { border-bottom: 0; }
+				.learning-table tbody tr:nth-child(even) { background: rgba(255,255,255,.025); }
+				.learning-map-button { display: grid; place-items: center; width: 1.8rem; height: 1.8rem; border: 1px solid rgba(255,255,255,.16); color: #8f8d86; background: #12141a; font-weight: 800; }
+				.learning-map-button:hover { color: #f0b429; border-color: #f0b429; }
+				.learning-mind-map-viewport { min-height: 190px; overflow: hidden; cursor: grab; background: #0b0c10; touch-action: none; }
+				.learning-mind-map-viewport:active { cursor: grabbing; }
+				.learning-mind-map-svg { display: block; max-width: none; margin: 0 auto; }
+				.learning-map-edge { fill: none; stroke: rgba(240,180,41,.42); stroke-width: 2; }
+				.learning-map-node { cursor: pointer; }
+				.learning-map-node rect { fill: #1c1f27; stroke: rgba(255,255,255,.16); stroke-width: 1.5; }
+				.learning-map-node:hover rect { fill: #23262e; stroke: #f0b429; }
+				.learning-map-node text { fill: #ece9e2; font: 600 13px Manrope, sans-serif; }
+				.learning-map-node .learning-map-badge { fill: #f0b429; font-size: 18px; font-weight: 800; }
+				.mind-map-edge { fill: none; stroke: rgba(255,255,255,.16); stroke-width: 2; vector-effect: non-scaling-stroke; }
+				.mind-map-node { cursor: pointer; outline: none; }
+				.mind-map-node rect { fill: #171b24; stroke: rgba(255,255,255,.16); stroke-width: 2; vector-effect: non-scaling-stroke; transition: fill .18s ease, stroke .18s ease; }
+				.mind-map-node:hover rect, .mind-map-node:focus rect { fill: #222a36; stroke: #f0b429; }
+				.mind-map-node.is-selected rect { fill: rgba(240,180,41,.14); stroke: #f0b429; stroke-width: 3; }
+				.mind-map-node.is-parent-target rect { fill: rgba(240,180,41,.10); stroke: #f0b429; stroke-width: 4; }
+				[data-map-viewport].is-selecting-parent { cursor: crosshair; }
+				.mind-map-node text { fill: #ece9e2; font: 700 14px Manrope, sans-serif; pointer-events: none; }
+				.mind-map-node .mind-map-description { fill: #8f8d86; font-size: 11px; font-weight: 500; }
+				.mind-map-toggle { fill: #f0b429 !important; font-size: 22px !important; pointer-events: auto !important; cursor: pointer; }
+				.mind-map-controls { position: absolute; right: 1rem; top: 1rem; display: flex; gap: .35rem; padding: .35rem; border: 1px solid rgba(255,255,255,.16); background: #0b0c10; }
+				.mind-map-controls button { min-width: 2rem; height: 2rem; color: #cfccc4; background: #1c1f27; border: 1px solid rgba(255,255,255,.16); font-size: .78rem; font-weight: 800; }
+				.mind-map-controls button:hover { color: #f0b429; border-color: #f0b429; }
+				[data-map-viewport] { position: relative; cursor: grab; touch-action: none; background: #0b0c10; }
+				[data-map-viewport]:active { cursor: grabbing; }
+
+				::-webkit-scrollbar { width: 10px; height: 10px; }
+				::-webkit-scrollbar-track { background: transparent; }
+				::-webkit-scrollbar-thumb { background: #2a2e39; border-radius: 9999px; border: 2px solid #0b0c10; }
+				::-webkit-scrollbar-thumb:hover { background: #3a3f4d; }
+
+				[data-drag-handle] { cursor: grab; }
+				[data-drag-handle]:active { cursor: grabbing; }
+				.ws-no-select, .ws-no-select * { user-select: none !important; }
+				body.ws-col-resize, body.ws-col-resize * { cursor: col-resize !important; }
+				.ws-handle { cursor: col-resize; touch-action: none; }
+				.ws-handle .ws-handle-line { transition: background .15s ease, width .15s ease; }
+				.ws-handle:hover .ws-handle-line, .ws-handle:active .ws-handle-line { width: 3px; background: rgba(240,180,41,.85); }
+				.ws-dragging { opacity: .45; outline: 2px dashed rgba(240,180,41,.75); outline-offset: -3px; }
+				.ws-ghost { position: fixed; z-index: 70; pointer-events: none; display: flex; align-items: center; gap: .5rem; padding: .45rem .9rem; background: #f0b429; color: #0b0c10; border: 1px solid #0b0c10; box-shadow: 4px 4px 0 0 #000; font-size: 12px; font-weight: 800; }
+				.ws-drop-indicator { position: absolute; top: 6px; bottom: 6px; width: 3px; margin-left: -1.5px; background: #f0b429; z-index: 40; pointer-events: none; }
+				@keyframes wsIndPulse { 0%,100% { opacity: .75; } 50% { opacity: 1; } }
+
+				/* ---- mobile shell ---- */
+				:root { --mobile-nav-h: 4.75rem; }
+				body { min-height: 100dvh; }
+				button, a, input, textarea, select { touch-action: manipulation; }
+				.mobile-page-padding { padding-bottom: calc(6rem + env(safe-area-inset-bottom)); }
+				.mobile-nav { padding-bottom: env(safe-area-inset-bottom); }
+				.mobile-nav-item { min-height: 3rem; min-width: 3rem; }
+				.mobile-sheet { padding-bottom: calc(1rem + env(safe-area-inset-bottom)); }
+				.mobile-workspace-shell { min-height: calc(100dvh - var(--chrome-h, 138px) - var(--mobile-nav-h)); }
+				.mobile-composer { padding-bottom: calc(.35rem + env(safe-area-inset-bottom)); }
+				[data-touch-menu] { opacity: 1; }
+				.chat-assistant-turn { display: block; }
+				.chat-assistant-avatar { margin-bottom: .45rem; }
+				.chat-assistant-message { width: 100%; padding: 0; }
+				.chat-mobile-brand, .chat-mobile-divider { display: none; }
+				@media (max-width: 767px) {
+					.study-layout { --chrome-h: 0px !important; }
+					.study-app-header { display: none !important; }
+					.mobile-study-brand { min-height: 2.75rem; padding: .4rem .75rem; }
+					.mobile-study-brand .mobile-study-topic { font-size: .78rem; }
+					.chat-mobile-brand { display: flex; }
+					.chat-mobile-divider { display: block; width: 1px; height: 1.5rem; background: rgba(255,255,255,.16); }
+					.study { font-size: .92rem; }
+					.study h1 { font-size: 1.65rem; line-height: 1.16; margin-top: 1.35rem; }
+					.study h2 { font-size: 1.25rem; margin-top: 1.25rem; }
+					.study h3 { font-size: 1.02rem; }
+					.study p { line-height: 1.65; }
+					.study ul, .study ol { line-height: 1.6; }
+					.study pre { font-size: .85rem; }
+					.learning-map-node text { font-size: 12px; }
+					.mind-map-node text { font-size: 12px; }
+					.mind-map-node .mind-map-description { font-size: 10px; }
+					.chat-pane-header { padding: .55rem .75rem; gap: .5rem; }
+					.chat-header-grip { display: none; }
+					.chat-tutor-icon { width: 1.75rem; height: 1.75rem; border-radius: .6rem; }
+					.chat-tutor-icon svg { width: .85rem; height: .85rem; }
+					.chat-tutor-meta p:first-child { font-size: .82rem; }
+					.chat-tutor-meta p:last-child { margin-top: .15rem; font-size: .65rem; }
+					.chat-header-actions { gap: .35rem; }
+					.chat-header-actions button { width: 2.75rem; height: 2.75rem; }
+					.chat-header-actions .{ width: 2.75rem; justify-content: center; padding: 0; }
+					.chat-quiz-label { display: none; }
+					.chat-conversation-toolbar { padding: .5rem .75rem; }
+					.chat-conversation-toolbar > div:first-child { gap: .35rem; }
+					.chat-conversation-toolbar > div:first-child > button { width: 2.75rem; height: 2.75rem; }
+					.chat-assistant-avatar { width: 1.5rem; height: 1.5rem; margin: 0 0 .3rem .15rem; border-radius: .5rem; }
+					.chat-assistant-avatar svg { width: .9rem; height: .9rem; }
+					.study table { display: block; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+					.study th, .study td { min-width: 6rem; overflow-wrap: normal; word-break: normal; }
+					.learning-table th, .learning-table td { padding: .55rem .65rem; }
+					.mobile-workspace-shell { height: calc(var(--learnix-viewport-height, 100dvh) - var(--chrome-h, 138px) - var(--mobile-nav-h)); }
+					.keyboard-open .mobile-nav { transform: translateY(110%); pointer-events: none; }
+					.keyboard-open .mobile-page-padding { padding-bottom: 1rem; }
+					.keyboard-open .mobile-workspace-shell { height: calc(var(--learnix-viewport-height, 100dvh) - var(--chrome-h, 138px)); }
+				}
+				@media (min-width: 768px) {
+					.mobile-study-brand { display: none !important; }
+					.mobile-page-padding { padding-bottom: 6rem; }
+				}
+				@media (min-width: 1024px) {
+					.mobile-workspace-shell { min-height: 560px; }
+				}
+				@media (prefers-reduced-motion: reduce) {
+					html { scroll-behavior: auto; }
+					*, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+				}
+			</style>
+		</head>
+	<body class={ "bg-ink text-cream font-sans antialiased min-h-screen relative overflow-x-hidden",
+		templ.KV("study-layout", data.Phase == "study") }
+		style={ templ.KV("--chrome-h:52px", data.Phase == "study") }
+		data-debug={ strconv.FormatBool(Debug) }
+		x-data="mobileShell()"
+		@keydown.escape.window="mobileMenuOpen = false">
+
+			<div class="relative z-10">
+			<header class={ "sticky top-0 z-40 border-b border-line bg-ink",
+				templ.KV("", data.Phase != "study"),
+				templ.KV("study-app-header", data.Phase == "study") }>
+				<div class={ "mx-auto flex items-center justify-between gap-4",
+					templ.KV("max-w-6xl px-4 sm:px-6 h-16", data.Phase != "study"),
+					templ.KV("max-w-[1500px] px-3 sm:px-6 h-[52px]", data.Phase == "study") }>
+					<a href="/" class="flex items-center gap-3 shrink-0">
+						<span class="grid place-items-center bg-lamp text-ink border border-ink shadow-hard shrink-0 w-8 h-8">
+							<i data-lucide="lamp-desk" class={ templ.KV("w-4 h-4", data.Phase != "study"), templ.KV("w-4 h-4", data.Phase == "study") }></i>
+						</span>
+						<span class={ "font-display font-800 uppercase tracking-[0.16em] text-cream",
+							templ.KV("text-lg", data.Phase != "study"),
+							templ.KV("text-sm", data.Phase == "study") }>Learnix</span>
+					</a>
+
+					if data.Phase == "study" {
+						<div class="hidden md:flex flex-1 min-w-0 items-center justify-center overflow-hidden">
+							@microStepper(data.Phase)
+						</div>
+					} else if data.IsAuthed {
+						<nav class="hidden md:flex h-9 border border-line bg-surface divide-x divide-line" aria-label="Navegação principal">
+							<a href="/" class={ "nav-link px-4 text-xs uppercase tracking-[0.12em]", templ.KV("nav-link-active", navActive(data, "/")) }>Início</a>
+							<a href="/studies" class={ "nav-link px-4 text-xs uppercase tracking-[0.12em]", templ.KV("nav-link-active", navActive(data, "/studies")) }>Estudos</a>
+							<a href="/leaderboard" class={ "nav-link px-4 text-xs uppercase tracking-[0.12em]", templ.KV("nav-link-active", navActive(data, "/leaderboard")) }>Ranking</a>
+						</nav>
+					}
+
+					<div class="flex items-center gap-2 shrink-0">
+						if data.Phase == "study" {
+							if data.Mobile.StudyID != 0 {
+								<a href={ studyBase(data.Mobile.StudyID) + "/mapa-mental" } title="Mapa mental" class="hidden md:inline-flex items-center gap-2 btn-secondary h-8 px-3 text-xs">
+									<i data-lucide="waypoints" class="w-3.5 h-3.5"></i>
+									<span class="hidden lg:inline">Mapa</span>
+								</a>
+							}
+							if data.IsAdmin {
+								<a href="/admin" title="Painel de administração" class="inline-flex items-center gap-2 h-8 px-3 border border-lamp bg-lamp/10 text-lamp text-xs font-800"><i data-lucide="shield" class="w-3.5 h-3.5"></i></a>
+							}
+							if data.IsAuthed {
+								<div x-data="{ open: false }" class="relative shrink-0">
+									<button type="button" @click="open = !open" class="h-8 px-3 inline-flex items-center gap-2 border border-line bg-surface text-muted hover:text-lamp text-xs font-800 uppercase tracking-[0.08em]">
+										<i data-lucide="user" class="w-3.5 h-3.5"></i>
+										<span class="hidden sm:inline max-w-[120px] truncate">{ data.UserSlug }</span>
+										<i data-lucide="chevron-down" class="w-3.5 h-3.5"></i>
+									</button>
+									<div x-show="open" @click.outside="open = false" x-cloak class="absolute right-0 top-full mt-1 w-56 bg-surface border border-line shadow-hard z-50 p-1">
+										@profileMenu(data, true)
+									</div>
+								</div>
+							}
+						} else if data.IsAuthed {
+							if data.Mobile.StudyID != 0 {
+								<a href={ studyBase(data.Mobile.StudyID) + "/mapa-mental" } title="Mapa mental" class="hidden lg:inline-flex items-center gap-2 btn-secondary h-9 px-3 text-xs"><i data-lucide="waypoints" class="w-3.5 h-3.5"></i>Mapa</a>
+							}
+							<div x-data="{ open: false }" class="relative shrink-0">
+								<button type="button" @click="open = !open" class="h-9 px-3 inline-flex items-center gap-2 border border-line bg-surface text-muted hover:text-lamp text-xs font-800 uppercase tracking-[0.08em]">
+									<i data-lucide="user" class="w-3.5 h-3.5"></i>
+									<span class="max-w-[120px] truncate">{ data.UserSlug }</span>
+									<i data-lucide="chevron-down" class="w-3.5 h-3.5"></i>
+								</button>
+								<div x-show="open" @click.outside="open = false" x-cloak class="absolute right-0 top-full mt-1 w-64 bg-surface border border-line shadow-hard z-50 p-1">
+									@profileMenu(data, false)
+								</div>
+							</div>
+						} else {
+							<a href="/login" class="btn-secondary h-9 px-4 text-xs">Entrar</a>
+							<a href="/register" class="btn-primary h-9 px-4 text-xs">Criar conta</a>
+						}
+					</div>
+				</div>
+			</header>
+
+				if data.Phase != "" && data.Phase != "study" {
+					<nav class="max-w-6xl mx-auto px-6 pb-2">
+						@stepper(data.Phase)
+					</nav>
+				}
+				<main class="max-w-6xl mx-auto px-6 pb-24 mobile-page-padding">
+					{ children... }
+				</main>
+			</div>
+
+			@mobileBottomNav(data)
+
+			<div id="loader" class="hidden fixed inset-0 z-50 grid place-items-center bg-ink/95">
+				<div class="flex flex-col items-center gap-4 pop">
+					<span class="grid place-items-center w-16 h-16 bg-lamp text-ink border border-ink shadow-hard">
+						<i data-lucide="lamp-desk" class="w-8 h-8 animate-pulse"></i>
+					</span>
+					<span id="loader-text" class="text-cream font-800">Carregando...</span>
+					<span class="w-44 h-1 bg-surface2 overflow-hidden">
+						<span class="block h-full w-1/2 bg-lamp animate-[loaderbar_1s_ease-in-out_infinite]"></span>
+					</span>
+				</div>
+			</div>
+			<style>
+				@keyframes loaderbar { 0% { transform: translateX(-100%);} 100% { transform: translateX(300%);} }
+			</style>
+		</body>
+	</html>
+}
+
+templ mobileBottomNav(data PageData) {
+	if data.IsAuthed {
+		<nav class="mobile-nav fixed inset-x-0 bottom-0 z-40 border-t-2 border-line bg-ink md:hidden"
+			data-mobile-nav={ templ.KV("study", data.Mobile.StudyID != 0) } aria-label="Navegação principal">
+			<div class="grid grid-cols-4 divide-x divide-line border-b border-line">
+				if data.Mobile.StudyID != 0 {
+					if data.Phase == "quiz" {
+						<a href={ studyBase(data.Mobile.StudyID) + "/workspace?pane=chat" } class="mobile-nav-item flex flex-col items-center justify-center gap-0.5 text-muted transition"><i data-lucide="message-circle" class="w-5 h-5"></i><span class="text-[10px] font-800">Chat</span></a>
+						<a href={ studyBase(data.Mobile.StudyID) + "/workspace?pane=files" } class="mobile-nav-item flex flex-col items-center justify-center gap-0.5 text-muted transition"><i data-lucide="notebook-pen" class="w-5 h-5"></i><span class="text-[10px] font-800">Notas</span></a>
+					} else {
+						<button type="button" data-mobile-pane-action="chat" @click="selectMobilePane('chat')"
+							class="mobile-nav-item flex flex-col items-center justify-center gap-0.5 text-muted transition"
+							:class="activePane === 'chat' ? 'bg-lamp/15 text-lamp' : ''" :aria-current="activePane === 'chat' ? 'page' : false">
+							<i data-lucide="message-circle" class="w-5 h-5"></i><span class="text-[10px] font-800">Chat</span>
+						</button>
+						<button type="button" data-mobile-pane-action="files" @click="selectMobilePane('files')"
+							class="mobile-nav-item flex flex-col items-center justify-center gap-0.5 text-muted transition"
+							:class="activePane === 'files' || activePane === 'editor' ? 'bg-lamp/15 text-lamp' : ''" :aria-current="activePane === 'files' || activePane === 'editor' ? 'page' : false">
+							<i data-lucide="notebook-pen" class="w-5 h-5"></i><span class="text-[10px] font-800">Notas</span>
+						</button>
+					}
+					if data.Phase == "quiz" {
+						<a href={ studyBase(data.Mobile.StudyID) } class="mobile-nav-item flex flex-col items-center justify-center gap-0.5 bg-lamp/15 text-lamp transition" aria-current="page">
+							<i data-lucide="list-checks" class="w-5 h-5"></i><span class="text-[10px] font-800">Questões</span>
+						</a>
+					} else if data.Mobile.HasActiveQuiz {
+						<a href={ studyBase(data.Mobile.StudyID) } class="mobile-nav-item flex flex-col items-center justify-center gap-0.5 text-lamp transition"><i data-lucide="list-checks" class="w-5 h-5"></i><span class="text-[10px] font-800">Retomar</span></a>
+					} else {
+						<button type="button" @click={ fmt.Sprintf("openQuizChooser('%s')", studyBase(data.Mobile.StudyID)) }
+							class="mobile-nav-item flex flex-col items-center justify-center gap-0.5 text-muted transition hover:text-lamp">
+							<i data-lucide="list-checks" class="w-5 h-5"></i><span class="text-[10px] font-800">Questões</span>
+						</button>
+					}
+				} else {
+					<a href="/" class={ "mobile-nav-item flex flex-col items-center justify-center gap-0.5 transition", templ.KV("bg-lamp/15 text-lamp", navActive(data, "/")), templ.KV("text-muted", !navActive(data, "/")) }><i data-lucide="home" class="w-5 h-5"></i><span class="text-[10px] font-800">Início</span></a>
+					<a href="/studies" class={ "mobile-nav-item flex flex-col items-center justify-center gap-0.5 transition", templ.KV("bg-lamp/15 text-lamp", navActive(data, "/studies")), templ.KV("text-muted", !navActive(data, "/studies")) }><i data-lucide="library" class="w-5 h-5"></i><span class="text-[10px] font-800">Estudos</span></a>
+					<a href="/leaderboard" class={ "mobile-nav-item flex flex-col items-center justify-center gap-0.5 transition", templ.KV("bg-lamp/15 text-lamp", navActive(data, "/leaderboard")), templ.KV("text-muted", !navActive(data, "/leaderboard")) }><i data-lucide="trophy" class="w-5 h-5"></i><span class="text-[10px] font-800">Ranking</span></a>
+				}
+				<button type="button" @click="mobileMenuOpen = !mobileMenuOpen" class="mobile-nav-item flex flex-col items-center justify-center gap-0.5 text-muted transition" :class="mobileMenuOpen ? 'bg-lamp/15 text-lamp' : ''">
+					<i data-lucide="more-horizontal" class="w-5 h-5"></i><span class="text-[10px] font-800">Mais</span>
+				</button>
+			</div>
+		</nav>
+
+		<div x-show="mobileMenuOpen" x-cloak class="fixed inset-0 z-[70] md:hidden" role="dialog" aria-modal="true" aria-label="Mais opções">
+			<button type="button" class="absolute inset-0 bg-ink/95" @click="mobileMenuOpen = false" aria-label="Fechar menu"></button>
+			<div @click.stop class="mobile-sheet absolute inset-x-0 bottom-0 border-t-2 border-line bg-surface p-4">
+				<div class="flex items-center justify-between gap-3 mb-4">
+					<div><p class="font-display text-xl font-800">Mais opções</p><p class="text-xs text-muted mt-1">Atalhos e preferências do Learnix</p></div>
+					<button type="button" @click="mobileMenuOpen = false" class="grid place-items-center w-11 h-11 border border-line text-muted hover:text-cream" aria-label="Fechar"><i data-lucide="x" class="w-5 h-5"></i></button>
+				</div>
+				<div class="grid gap-2">
+					if data.Mobile.StudyID != 0 {
+						<a href={ studyBase(data.Mobile.StudyID) + "/workspace" } class="flex items-center gap-3 min-h-12 border border-line bg-surface2 px-4 text-sm font-700 text-cream"><i data-lucide="book-open" class="w-5 h-5 text-lamp"></i>Voltar ao estudo</a>
+						<a href={ studyBase(data.Mobile.StudyID) + "/mapa-mental" } class="flex items-center gap-3 min-h-12 border border-line bg-surface2 px-4 text-sm font-700 text-cream"><i data-lucide="waypoints" class="w-5 h-5"></i>Mapa mental</a>
+					}
+					<a href="/studies" class="flex items-center gap-3 min-h-12 border border-line bg-surface2 px-4 text-sm font-700 text-cream"><i data-lucide="library" class="w-5 h-5 text-lamp"></i>Meus estudos</a>
+					<a href="/tests" class="flex items-center gap-3 min-h-12 border border-line bg-surface2 px-4 text-sm font-700 text-cream"><i data-lucide="clipboard-check" class="w-5 h-5 text-lamp"></i>Minhas provas</a>
+					<a href="/leaderboard" class="flex items-center gap-3 min-h-12 border border-line bg-surface2 px-4 text-sm font-700 text-cream"><i data-lucide="trophy" class="w-5 h-5 text-lamp"></i>Leaderboard</a>
+					<a href="/profile/me" class="flex items-center gap-3 min-h-12 border border-line bg-surface2 px-4 text-sm font-700 text-cream"><i data-lucide="user" class="w-5 h-5 text-lamp"></i>Meu perfil</a>
+					if Debug {
+						<button type="button" data-web-toggle="mobile" class="flex items-center justify-between gap-3 min-h-12 border border-line bg-surface2 px-4 text-sm font-700 text-cream"><span class="flex items-center gap-3"><i data-lucide="globe" class="w-5 h-5"></i>Pesquisa na web</span><span class="text-xs text-muted">alternar</span></button>
+					}
+					if data.HasQuota {
+						<div class="flex items-center justify-between gap-3 min-h-12 border border-line bg-surface2 px-4 text-xs text-muted"><span class="flex items-center gap-3"><i data-lucide="gauge" class="w-5 h-5 text-lamp"></i>Tokens disponíveis</span><strong class="text-cream">{ fmtTokens(data.Remaining) }</strong></div>
+					}
+					<form action="/logout" method="post"><button type="submit" class="w-full flex items-center gap-3 min-h-12 border border-coral bg-coral/5 px-4 text-sm font-700 text-coral"><i data-lucide="log-out" class="w-5 h-5"></i>Sair</button></form>
+				</div>
+			</div>
+		</div>
+	}
+}
+
+templ stepper(phase string) {
+	<div class="flex items-center gap-2 sm:gap-3 text-sm">
+		@stepItem("1", "Configurar", "settings", phase, "setup")
+		<div class="flex-1 h-px bg-line max-w-[70px]"></div>
+		@stepItem("2", "Estudar", "book-open", phase, "study")
+		<div class="flex-1 h-px bg-line max-w-[70px]"></div>
+		@stepItem("3", "Questões", "list-checks", phase, "quiz")
+	</div>
+}
+
+templ microStepper(phase string) {
+	@microStep("1", "Configurar", "settings", phase, "setup")
+	<span class="w-3 h-px bg-line shrink-0"></span>
+	@microStep("2", "Estudar", "book-open", phase, "study")
+	<span class="w-3 h-px bg-line shrink-0"></span>
+	@microStep("3", "Questões", "list-checks", phase, "quiz")
+}
+
+templ microStep(num, label, icon, phase, step string) {
+	<div class={ "flex items-center gap-1.5 border px-2 py-1 transition-all",
+		templ.KV("border-lamp bg-lamp/10 text-lamp", stepActive(phase, step)),
+		templ.KV("border-line text-muted/50", !stepActive(phase, step)) }>
+		<span class={ "grid place-items-center w-4 h-4 text-[9px] font-800",
+			templ.KV("bg-lamp text-ink", stepActive(phase, step)),
+			templ.KV("bg-surface2 text-muted/60", !stepActive(phase, step)) }>{ num }</span>
+		<i data-lucide={ icon } class="w-3 h-3 hidden lg:block"></i>
+		<span class="hidden 2xl:inline text-[10px] font-800 uppercase tracking-[0.14em]">{ label }</span>
+	</div>
+}
+
+templ stepItem(num, label, icon, phase, step string) {
+	<div class={ "flex items-center gap-2 px-3 py-1.5 border transition-all",
+		templ.KV("border-lamp bg-lamp/10 text-lamp", stepActive(phase, step)),
+		templ.KV("border-line text-muted", !stepActive(phase, step)) }>
+		<span class={ "grid place-items-center w-5 h-5 text-[10px] font-800",
+			templ.KV("bg-lamp text-ink", stepActive(phase, step)),
+			templ.KV("bg-surface2 text-muted", !stepActive(phase, step)) }>{ num }</span>
+		<i data-lucide={ icon } class="w-3.5 h-3.5 hidden sm:block"></i>
+		<span class="font-700 hidden sm:inline">{ label }</span>
+	</div>
+}
+
+templ profileMenu(data PageData, compact bool) {
+	if data.HasQuota {
+		<div class="px-3 py-3 border-b border-line">
+			<div class="flex items-center justify-between gap-3 text-xs text-muted">
+				<span class="flex items-center gap-2"><i data-lucide="gauge" class="w-3.5 h-3.5 text-lamp"></i>Tokens</span>
+				<strong class="text-cream">{ fmtTokens(data.Remaining) } restantes</strong>
+			</div>
+			<div class="mt-1 text-[11px] text-muted">{ fmtTokens(data.LifetimeUsed) } usados no total</div>
+		</div>
+	}
+	<a href="/profile/me" class="flex items-center gap-2 px-3 py-2.5 text-sm font-700 text-cream hover:bg-lamp/10"><i data-lucide="user" class="w-4 h-4 text-lamp"></i>Meu perfil</a>
+	if data.IsAdmin {
+		<a href="/admin" class="flex items-center gap-2 px-3 py-2.5 text-sm font-700 text-lamp hover:bg-lamp/10"><i data-lucide="shield" class="w-4 h-4"></i>Painel do administrador</a>
+	}
+	if Debug {
+		<button type="button" id="web-toggle" title="Pesquisa web (Tavily)" aria-pressed="true" class="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-sm font-700 text-cream hover:bg-lamp/10"><span class="flex items-center gap-2"><i data-lucide="globe" class="w-4 h-4 text-lamp"></i>Pesquisa na web</span><span class="text-xs text-muted">alternar</span></button>
+	}
+	if data.Mobile.StudyID != 0 {
+		<a href={ studyBase(data.Mobile.StudyID) + "/mapa-mental" } class="flex items-center gap-2 px-3 py-2.5 text-sm font-700 text-cream hover:bg-lamp/10"><i data-lucide="waypoints" class="w-4 h-4 text-lamp"></i>Mapa mental</a>
+	}
+	<div class="border-t border-line mt-1 pt-1">
+		<form action="/logout" method="post">
+			<button type="submit" class="flex w-full items-center gap-2 px-3 py-2.5 text-sm font-700 text-coral hover:bg-coral/10"><i data-lucide="log-out" class="w-4 h-4"></i>Sair</button>
+		</form>
+	</div>
+}
+
+func fmtScore(n, total int) string {
+	return fmt.Sprintf("%d / %d", n, total)
+}

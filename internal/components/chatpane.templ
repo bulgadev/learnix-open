@@ -1,0 +1,336 @@
+package components
+
+import (
+	"encoding/json"
+	"fmt"
+	"strconv"
+	"time"
+
+	"learnix/internal/db"
+	"learnix/internal/session"
+)
+
+var suggestions = []string{
+	"Explique como se eu tivesse 12 anos",
+	"Me dê 3 exemplos práticos",
+	"Resuma em tópicos rápidos",
+	"Quais as pegadinhas de prova?",
+	"Crie uma analogia memorável",
+}
+
+func studyBase(id int64) string {
+	return "/study/" + strconv.FormatInt(id, 10)
+}
+
+func relTime(t time.Time) string {
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return "agora"
+	case d < time.Hour:
+		return fmt.Sprintf("há %d min", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("há %d h", int(d.Hours()))
+	default:
+		return t.Format("02/01/2006")
+	}
+}
+
+templ ChatPane(chats []db.Chat, active *db.Chat, msgs []db.ChatMessage, s *session.Session, state MobileStudyState) {
+	{{ base := studyBase(s.StudyID) }}
+	<aside id="chat-pane"
+		class="relative w-full flex-col border-l border-line bg-surface min-h-0 lg:flex"
+		data-panel="chat" :style="paneStyle('chat')"
+		:class="pane === 'chat' ? 'flex' : 'hidden'"
+		x-data="workspaceChat()" data-study-id={ idStr(s.StudyID) } data-chat-id={ idStr(active.ID) }
+		data-turns-url={ base + "/turns" } data-chat-list-url={ base + "/chats?chat=" + idStr(active.ID) }
+		data-initial-prompt={ state.Prompt }>
+		<div class="chat-pane-header flex items-center justify-between gap-2 px-4 py-3 border-b border-line shrink-0 cursor-grab active:cursor-grabbing" data-drag-handle>
+			<div class="flex items-center gap-2.5">
+				<i data-lucide="grip-vertical" class="chat-header-grip w-3.5 h-3.5 text-muted/40 shrink-0 -ml-1"></i>
+				<a href="/" title="Ir para o início" aria-label="Ir para o início" class="chat-tutor-icon grid place-items-center w-8 h-8 bg-lamp text-ink border border-ink hover:bg-lampsoft transition">
+					<i data-lucide="lamp-desk" class="w-4 h-4"></i>
+				</a>
+				<div class="chat-tutor-meta">
+					<p class="text-sm font-800 leading-none">Tutor</p>
+					<p class="flex items-center gap-1.5 text-[11px] text-lamp mt-1">
+						<span class="w-1.5 h-1.5 bg-lamp animate-pulse"></span>
+						Sessão ativa
+						<span class="text-muted/70 ml-1">· Tokens <span data-token-total>{ chatTokenTotal(msgs) }</span></span>
+					</p>
+				</div>
+			</div>
+			<div class="chat-header-actions flex items-center gap-1.5">
+				<button type="button" @click="showSaved = !showSaved"
+					hx-get={ base + "/saved" } hx-target="#saved-drawer" hx-swap="innerHTML"
+					title="Salvos e destaques"
+					class="grid place-items-center w-12 h-12 lg:w-9 lg:h-9 border border-line bg-surface2 text-muted hover:text-lamp hover:border-lamp transition">
+					<i data-lucide="bookmark" class="w-4 h-4"></i>
+				</button>
+			<button type="button" @click={ fmt.Sprintf("openQuizChooser('%s')", base) }
+				title="Gerar quiz"
+				class="btn-primary px-3.5 py-2 text-xs leading-none">
+				<i data-lucide="check-check" class="w-4 h-4"></i>
+				<span class="chat-quiz-label">Estou pronto</span>
+			</button>
+			</div>
+		</div>
+
+		<div x-data="{ menuOpen: false, renaming: false }" class="chat-conversation-toolbar px-4 py-2.5 border-b border-line shrink-0 space-y-2">
+			<div class="flex items-center gap-1.5">
+				<div class="relative flex-1 min-w-0">
+					<button type="button" @click="menuOpen = !menuOpen" title="Trocar de conversa"
+						class="w-full flex items-center gap-2 border border-line bg-surface2 text-sm font-700 text-cream/90 hover:border-lamp hover:text-lamp px-3 py-2 transition">
+						<i data-lucide="message-square-text" class="w-4 h-4 text-lamp/80 shrink-0"></i>
+						<span class="flex-1 min-w-0 truncate text-left">{ active.Title }</span>
+						<span class="text-[10px] font-600 text-muted shrink-0">{ relTime(active.UpdatedAt) }</span>
+						<i data-lucide="chevron-down" class="w-3.5 h-3.5 text-muted shrink-0"></i>
+					</button>
+					<div x-show="menuOpen" @click.outside="menuOpen = false"
+						class="absolute left-0 right-0 top-full mt-1 z-30 rounded-none border border-line bg-surface2 shadow-hard p-1 max-h-64 overflow-y-auto no-scrollbar">
+						for _, c := range chats {
+							<a href="#"
+								hx-get={ base + "/chats?chat=" + idStr(c.ID) }
+								hx-target="#chat-pane" hx-select="#chat-pane > *" hx-swap="innerHTML"
+								class={ "flex items-center gap-2 rounded-none px-2.5 py-2 text-sm transition",
+									templ.KV("bg-lamp/10 text-lamp", c.ID == active.ID),
+									templ.KV("text-cream/80 hover:bg-surface hover:text-cream", c.ID != active.ID) }>
+								<i data-lucide="message-square" class="w-3.5 h-3.5 shrink-0 opacity-70"></i>
+								<span class="flex-1 min-w-0 truncate">{ c.Title }</span>
+								<span class="text-[10px] font-600 text-muted shrink-0">{ relTime(c.UpdatedAt) }</span>
+							</a>
+						}
+					</div>
+				</div>
+				<button type="button" @click="renaming = !renaming" title="Renomear"
+					class="grid place-items-center w-12 h-12 lg:w-9 lg:h-9 border border-line bg-surface2 text-muted hover:text-lamp hover:border-lamp transition shrink-0">
+					<i data-lucide="pencil" class="w-4 h-4"></i>
+				</button>
+				<button type="button" title="Nova conversa"
+					hx-post={ base + "/chats" } hx-target="#chat-pane" hx-select="#chat-pane > *" hx-swap="innerHTML"
+					class="grid place-items-center w-12 h-12 lg:w-9 lg:h-9 border border-line bg-surface2 text-muted hover:text-lamp hover:border-lamp transition shrink-0">
+					<i data-lucide="plus" class="w-4 h-4"></i>
+				</button>
+				<button type="button" title="Excluir conversa"
+					hx-post={ base + "/chats/" + idStr(active.ID) + "/delete" }
+					hx-target="#chat-pane" hx-select="#chat-pane > *" hx-swap="innerHTML"
+					hx-confirm="Excluir conversa?"
+					class="grid place-items-center w-12 h-12 lg:w-9 lg:h-9 border border-line bg-surface2 text-muted hover:text-coral hover:border-coral transition shrink-0">
+					<i data-lucide="trash-2" class="w-4 h-4"></i>
+				</button>
+			</div>
+			<form x-show="renaming"
+				hx-post={ base + "/chats/" + idStr(active.ID) + "/rename" }
+				hx-target="#chat-pane" hx-select="#chat-pane > *" hx-swap="innerHTML"
+				class="flex items-center gap-1">
+				<input type="text" name="title" value={ active.Title } placeholder="Renomear"
+					class="input px-2.5 py-1.5 text-sm"/>
+				<button type="submit" class="btn-primary px-2.5 py-1.5 text-xs">Renomear</button>
+			</form>
+		</div>
+
+		<div data-chat-scroll class="flex-1 min-h-0 overflow-y-auto px-4 pb-3">
+			<div id="chat" data-study-id={ idStr(s.StudyID) } data-chat-id={ idStr(active.ID) } class="space-y-5 py-4">
+				for _, m := range msgs {
+					@bubbleMsg(s.StudyID, m)
+				}
+				if len(msgs) == 0 {
+					<div id="stream-anchor"></div>
+				}
+			</div>
+		</div>
+		<div class="mobile-composer shrink-0 px-4 pt-2 bg-ink">
+			<div class="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
+				for _, sg := range suggestions {
+					<button type="button" @click={ fmt.Sprintf("useSuggestion('%s')", sg) } :disabled="busy"
+						class="shrink-0 text-[11px] font-600 text-muted bg-surface border border-line px-3 py-1.5 hover:text-lamp hover:border-lamp disabled:opacity-40 transition-all">
+						{ sg }
+					</button>
+				}
+			</div>
+			<div class="border border-line bg-ink p-1.5 flex items-end gap-1.5">
+				<textarea x-ref="input" @keydown.enter.prevent="if(!$event.shiftKey){ send() }"
+					x-model="draft" rows="1"
+					placeholder="Peça mais material..."
+					class="flex-1 resize-none bg-transparent outline-none px-2.5 py-2 text-sm text-cream placeholder:text-muted/50 max-h-32"></textarea>
+				<button @click="send()" :disabled="busy || draft.trim()==''"
+					class="grid place-items-center w-12 h-12 bg-lamp text-ink border border-ink disabled:opacity-30 disabled:cursor-not-allowed hover:bg-lampsoft transition shrink-0">
+					<template x-if="!busy"><i data-lucide="arrow-up" class="w-4 h-4"></i></template>
+					<template x-if="busy"><span class="w-3.5 h-3.5 border-2 border-ink/40 border-t-ink animate-spin"></span></template>
+				</button>
+			</div>
+		</div>
+		<div x-show="showSaved" x-cloak
+			class="absolute inset-0 z-40 w-full max-w-sm ml-auto flex flex-col border-l border-line bg-surface shadow-hard md:inset-y-0">
+			<div class="flex items-center justify-between px-4 py-3 border-b border-line shrink-0">
+				<span class="flex items-center gap-2 font-700 text-cream text-sm">
+					<i data-lucide="bookmark" class="w-4 h-4 text-lamp"></i>
+					Salvos e destaques
+				</span>
+				<button type="button" @click="showSaved = false"
+					class="grid place-items-center w-11 h-11 text-muted hover:text-coral hover:bg-surface2 transition" aria-label="Fechar salvos">
+					<i data-lucide="x" class="w-4 h-4"></i>
+				</button>
+			</div>
+			<div id="saved-drawer" class="flex-1 min-h-0 overflow-y-auto pb-4">
+				<p class="px-4 py-8 text-center text-xs text-muted/70">Carregando...</p>
+			</div>
+		</div>
+	</aside>
+}
+
+type sourceChip struct {
+	Title   string `json:"title"`
+	URL     string `json:"url"`
+	Snippet string `json:"snippet"`
+}
+
+// parseSources decodes a ChatMessage.SourcesJSON into citation chips;
+// empty or invalid JSON yields no chips.
+func parseSources(s string) []sourceChip {
+	if s == "" {
+		return nil
+	}
+	var out []sourceChip
+	if json.Unmarshal([]byte(s), &out) != nil {
+		return nil
+	}
+	return out
+}
+
+func truncTitle(s string) string {
+	r := []rune(s)
+	if len(r) <= 40 {
+		return s
+	}
+	return string(r[:40]) + "…"
+}
+
+func chatTokenTotal(msgs []db.ChatMessage) string {
+	total := 0
+	for _, m := range msgs {
+		if m.UsageJSON == "" {
+			continue
+		}
+		var usage session.TokenUsage
+		if json.Unmarshal([]byte(m.UsageJSON), &usage) == nil {
+			total += usage.Total()
+		}
+	}
+	if total == 0 {
+		return "—"
+	}
+	return strconv.Itoa(total)
+}
+
+type toolLogEntry struct {
+	Name    string `json:"name"`
+	Args    string `json:"args"`
+	Summary string `json:"summary"`
+}
+
+// parseToolLog decodes a ChatMessage.ToolLogJSON into activity entries;
+// empty or invalid JSON yields no entries.
+func parseToolLog(s string) []toolLogEntry {
+	if s == "" {
+		return nil
+	}
+	var out []toolLogEntry
+	if json.Unmarshal([]byte(s), &out) != nil {
+		return nil
+	}
+	return out
+}
+
+templ bubbleMsg(studyID int64, m db.ChatMessage) {
+	if m.Role == "user" {
+		<div class="flex flex-col items-end gap-1 rise" data-turn-id={ m.TurnID } data-turn-status={ m.TurnStatus }>
+			<div id={ "msg-" + idStr(m.ID) } data-msg-id={ idStr(m.ID) }
+				class="max-w-[80%] bg-surface2 border border-line px-5 py-3.5 text-cream whitespace-pre-wrap shadow-hard">{ m.Content }</div>
+			if m.TurnStatus == "queued" || m.TurnStatus == "running" {
+				<span class="inline-flex items-center gap-1.5 rounded-none text-[10px] font-700 text-lamp/80 px-2 py-0.5">
+					<span class="w-2.5 h-2.5 border-2 border-lamp/30 border-t-lamp rounded-none animate-spin"></span>
+					A IA está respondendo…
+				</span>
+			} else if m.TurnStatus == "failed" {
+				<div class="flex flex-wrap items-center justify-end gap-2 text-[10px]">
+					<span class="text-coral/80">{ m.TurnError }</span>
+					<button type="button" @click={ fmt.Sprintf("retryTurn('%s')", m.TurnID) }
+						class="inline-flex items-center gap-1 border border-coral bg-coral/10 text-coral px-2.5 py-1 font-800 hover:bg-coral/20 transition">
+						<i data-lucide="refresh-cw" class="w-3 h-3"></i>Tentar novamente
+					</button>
+				</div>
+			}
+			<button type="button"
+				hx-post={ studyBase(studyID) + "/chats/" + idStr(m.ChatID) + "/messages/" + idStr(m.ID) + "/branch" }
+				hx-target="#chat-pane" hx-select="#chat-pane > *" hx-swap="innerHTML"
+				title="Ramificar conversa a partir daqui"
+				class="inline-flex items-center gap-1 rounded-none text-[10px] font-600 text-muted/60 hover:text-lamp px-2 py-0.5 transition">
+				<i data-lucide="git-branch" class="w-3 h-3"></i>
+				Ramificar daqui
+			</button>
+		</div>
+	} else {
+		{{ sources := parseSources(m.SourcesJSON) }}
+		<div class="chat-assistant-turn gap-3.5 rise">
+			<span class="chat-assistant-avatar grid place-items-center w-9 h-9 bg-lamp text-ink border border-ink shrink-0 mt-1 shadow-hard">
+				<i data-lucide="lamp-desk" class="w-4 h-4"></i>
+			</span>
+			<div id={ "msg-" + idStr(m.ID) } data-msg-id={ idStr(m.ID) }
+				class="chat-assistant-message flex-1 min-w-0">
+				<div class="study" data-render>{ m.Content }</div>
+				@LearningElements(decodeElements(m.ElementsJSON))
+				if len(sources) > 0 {
+					<div class="mt-4 pt-3 border-t border-line/60">
+						<p class="flex items-center gap-1.5 text-[11px] font-700 text-lamp/80 mb-2">
+							<i data-lucide="link-2" class="w-3 h-3"></i>
+							Fontes
+						</p>
+						<div class="flex flex-wrap gap-1.5">
+							for _, src := range sources {
+								<a href={ src.URL } target="_blank" rel="noopener" title={ src.Snippet }
+									class="inline-flex items-center gap-1 max-w-full border border-line bg-surface2 text-lamp text-[11px] font-600 px-2.5 py-1 hover:border-lamp transition">
+									<span class="truncate">{ truncTitle(src.Title) }</span>
+									<i data-lucide="external-link" class="w-3 h-3 shrink-0"></i>
+								</a>
+							}
+						</div>
+					</div>
+				}
+				if log := parseToolLog(m.ToolLogJSON); len(log) > 0 {
+					<details class="mt-3 text-[11px] text-muted">
+						<summary class="flex items-center gap-1.5 cursor-pointer select-none list-none hover:text-cream/80 transition">
+							<i data-lucide="wrench" class="w-3 h-3 shrink-0"></i>
+							Atividade · { fmt.Sprintf("%d ferramentas usadas", len(log)) }
+						</summary>
+						<div class="mt-2 space-y-1 pl-4">
+							for _, e := range log {
+								<p class="flex items-baseline gap-1.5">
+									<span class="font-mono text-lamp shrink-0">{ e.Name }</span>
+									<span class="text-muted/80">{ e.Summary }</span>
+								</p>
+							}
+						</div>
+					</details>
+				}
+				<div class="mt-3 flex items-center gap-2">
+					<button type="button"
+						hx-post={ studyBase(studyID) + "/chats/" + idStr(m.ChatID) + "/messages/" + idStr(m.ID) + "/save-to-note" }
+						hx-target="this" hx-swap="outerHTML"
+						class="inline-flex items-center gap-1 border border-line bg-surface2 text-muted text-[11px] font-600 px-2.5 py-1 hover:text-lamp hover:border-lamp transition">
+						<i data-lucide="bookmark-plus" class="w-3 h-3"></i>
+						Salvar como nota
+					</button>
+					@BookmarkButton(studyID, m)
+					<button type="button"
+						hx-post={ studyBase(studyID) + "/chats/" + idStr(m.ChatID) + "/messages/" + idStr(m.ID) + "/branch" }
+						hx-target="#chat-pane" hx-select="#chat-pane > *" hx-swap="innerHTML"
+						class="inline-flex items-center gap-1 border border-line bg-surface2 text-muted text-[11px] font-600 px-2.5 py-1 hover:text-lamp hover:border-lamp transition">
+						<i data-lucide="git-branch" class="w-3 h-3"></i>
+						Ramificar daqui
+					</button>
+				</div>
+			</div>
+		</div>
+	}
+}

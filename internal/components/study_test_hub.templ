@@ -1,0 +1,215 @@
+package components
+
+import (
+	"fmt"
+	"strconv"
+
+	"learnix/internal/db"
+)
+
+templ StudyTestHub(studies []db.StudySummary, tests []db.TestSummary, tab string, user *db.User, q *db.Quota, isAdmin bool) {
+	@Layout(AuthedPageData("Estudos e provas", "", "", user, q, isAdmin)) {
+		<div class="pt-7 max-w-6xl mx-auto">
+			<div class="flex flex-col lg:flex-row lg:items-end justify-between gap-5 rise">
+				<div>
+					<span class="micro-label inline-flex items-center gap-2 bg-surface border border-line px-3 py-1.5 text-cream"><i data-lucide="layers-3" class="w-3.5 h-3.5 text-lamp"></i>Aprender</span>
+					<h1 class="font-display text-4xl sm:text-5xl font-800 tracking-tight mt-3">Estudos e provas.</h1>
+					<p class="text-muted mt-2 max-w-2xl">Crie um espaço para aprender ou vá direto ao teste para descobrir o que já domina.</p>
+				</div>
+				<div class="flex flex-col sm:flex-row gap-2">
+					<a href="/studies/new" class="btn-primary px-5 py-3 text-sm uppercase tracking-[0.08em]"><i data-lucide="book-plus" class="w-4 h-4"></i>Criar estudo</a>
+					<a href="/tests/new" class="btn-secondary px-5 py-3 text-sm font-800"><i data-lucide="clipboard-check" class="w-4 h-4"></i>Fazer uma prova</a>
+				</div>
+			</div>
+
+			<div class="mt-9 flex items-center border border-line bg-surface max-w-md" role="tablist" aria-label="Conteúdo">
+				<a href="/studies?tab=studies" class={ "flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 text-sm font-800 transition", templ.KV("bg-lamp text-ink", tab == "studies"), templ.KV("text-muted hover:text-cream", tab != "studies") } role="tab" aria-selected={ tab == "studies" }><i data-lucide="library" class="w-4 h-4"></i>Estudos <span class="text-[10px] opacity-70">{ strconv.Itoa(len(studies)) }</span></a>
+				<a href="/studies?tab=tests" class={ "flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 text-sm font-800 transition", templ.KV("bg-lamp text-ink", tab == "tests"), templ.KV("text-muted hover:text-cream", tab != "tests") } role="tab" aria-selected={ tab == "tests" }><i data-lucide="clipboard-check" class="w-4 h-4"></i>Provas <span class="text-[10px] opacity-70">{ strconv.Itoa(len(tests)) }</span></a>
+			</div>
+
+			if tab == "tests" {
+				@testsPanel(tests)
+			} else {
+				@studiesPanel(studies)
+			}
+		</div>
+	}
+}
+
+templ studiesPanel(items []db.StudySummary) {
+	<div class="mt-7">
+		if len(items) == 0 {
+			<div class="ui-panel-flat border-dashed p-12 text-center">
+				<i data-lucide="book-plus" class="w-9 h-9 mx-auto text-muted"></i>
+				<p class="mt-4 text-cream font-800">Nenhum estudo ainda.</p>
+				<p class="text-muted text-sm mt-1">Crie um espaço para guardar material, notas, conversas e provas.</p>
+				<a href="/studies/new" class="btn-primary mt-6 px-5 py-3 text-sm uppercase tracking-[0.08em]">Criar meu primeiro estudo <i data-lucide="arrow-right" class="w-4 h-4"></i></a>
+			</div>
+		} else {
+			<div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 stagger">
+				for _, s := range items {
+					@studyCard(s)
+				}
+			</div>
+		}
+	</div>
+}
+
+templ testsPanel(items []db.TestSummary) {
+	<div class="mt-7">
+		<div class="border border-line bg-surface2 p-5 sm:p-6 mb-5"><div class="flex items-start gap-3"><i data-lucide="sparkles" class="w-5 h-5 text-lamp mt-0.5"></i><div><p class="font-800 text-cream">Testes com memória.</p><p class="text-sm text-muted mt-1">Cada teste guarda suas tentativas, observa seus pontos fracos e adapta a próxima prova ao seu desempenho.</p></div></div></div>
+		if len(items) == 0 {
+			<div class="ui-panel-flat border-dashed p-12 text-center">
+				<i data-lucide="clipboard-list" class="w-9 h-9 mx-auto text-muted"></i>
+				<p class="mt-4 text-cream font-800">Nenhuma prova ainda.</p>
+				<p class="text-muted text-sm mt-1">Faça uma prova para ver seu nível e receber dicas de melhora.</p>
+				<a href="/tests/new" class="btn-primary mt-6 px-5 py-3 text-sm uppercase tracking-[0.08em]">Criar minha primeira prova <i data-lucide="arrow-right" class="w-4 h-4"></i></a>
+			</div>
+		} else {
+			<div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 stagger">
+				for _, test := range items {
+					@testCard(test)
+				}
+			</div>
+		}
+	</div>
+}
+
+
+func testModeLabel(mode string) string {
+	if mode == "ranked" { return "Ranqueada" }
+	return "Prática"
+}
+
+templ testCard(test db.TestSummary) {
+	<a href={ "/tests/" + strconv.FormatInt(test.ID, 10) } class="block border border-line bg-surface shadow-hard p-5 hover:border-lamp group">
+		<div class="flex items-center justify-between gap-3 mb-3"><span class="inline-flex items-center gap-1.5"><span class={ "text-[10px] font-800 uppercase tracking-wide border px-2 py-0.5", templ.KV("text-lamp bg-lamp/10 border-lamp", test.Mode == "ranked"), templ.KV("text-muted bg-surface2 border-line", test.Mode != "ranked") }>{ testModeLabel(test.Mode) }</span>
+			if test.Exam {
+				<span class="text-[10px] font-800 uppercase tracking-wide border border-coral bg-coral/10 text-coral px-2 py-0.5">Simulado</span>
+			}</span><span class="text-xs text-muted">{ test.CreatedAt.Format("02/01 15:04") }</span></div>
+		<p class="text-cream font-800 line-clamp-2 group-hover:text-lamp">{ test.Topic }</p>
+		if test.AttemptCount == 0 {
+			<p class="mt-3 text-sm text-lamp">Pronto para iniciar</p>
+		} else if test.LastFinishedAt != nil {
+			<p class="mt-3 text-sm text-muted">Última nota <strong class="text-cream">{ fmt.Sprintf("%.2f", float64(test.LastScoreCents)/100) }</strong> · { strconv.Itoa(test.LastScore) }/{ strconv.Itoa(test.LastTotal) } · { strconv.Itoa(test.AttemptCount) } tentativas</p>
+		} else {
+			<p class="mt-3 text-sm text-lamp">Tentativa em andamento · continuar</p>
+		}
+	</a>
+}
+
+func testAttemptURL(testID, attemptID int64) string {
+	return "/tests/" + strconv.FormatInt(testID, 10) + "/attempts/" + strconv.FormatInt(attemptID, 10)
+}
+
+func latestTestAttempt(attempts []db.TestAttemptSummary) *db.TestAttemptSummary {
+	if len(attempts) == 0 {
+		return nil
+	}
+	return &attempts[0]
+}
+
+templ TestOverview(test db.TestDefinition, summary db.TestSummary, attempts []db.TestAttemptSummary, notes []string, user *db.User, q *db.Quota, isAdmin bool) {
+	@Layout(AuthedPageData("Meu teste", "", test.Topic, user, q, isAdmin)) {
+		{{ latest := latestTestAttempt(attempts) }}
+		<div class="pt-7 max-w-6xl mx-auto">
+			<div class="flex flex-col lg:flex-row lg:items-end justify-between gap-5 rise">
+				<div>
+					<a href="/tests" class="inline-flex items-center gap-2 text-xs font-800 text-muted hover:text-lamp transition"><i data-lucide="arrow-left" class="w-3.5 h-3.5"></i>Minhas provas</a>
+					<div class="mt-4 flex flex-wrap items-center gap-3"><span class={ "inline-flex items-center gap-2 text-[11px] font-800 uppercase tracking-[0.18em] border px-3 py-1", templ.KV("text-lamp bg-lamp/10 border-lamp", test.Mode == "ranked"), templ.KV("text-muted bg-surface2 border-line", test.Mode != "ranked") }><i data-lucide="clipboard-check" class="w-3.5 h-3.5"></i>{ testModeLabel(test.Mode) }</span>
+						if test.Exam {
+							<span class="inline-flex items-center gap-2 text-[11px] font-800 uppercase tracking-[0.18em] border border-coral bg-coral/10 text-coral px-3 py-1"><i data-lucide="timer" class="w-3.5 h-3.5"></i>Simulado</span>
+						}
+						<span class="text-xs text-muted">{ test.Preset }</span></div>
+					<h1 class="font-display text-4xl sm:text-5xl font-800 tracking-tight mt-4">{ test.Topic }</h1>
+					<p class="text-muted mt-2 max-w-2xl">Acompanhe seu desempenho, veja o que aprendemos sobre você e escolha quando iniciar a próxima tentativa.</p>
+				</div>
+				if latest != nil && latest.FinishedAt == nil {
+					<a href={ testAttemptURL(test.ID, latest.ID) } class="btn-primary px-5 py-3 text-sm uppercase tracking-[0.08em]"><i data-lucide="play" class="w-4 h-4"></i>Continuar tentativa</a>
+				} else {
+					<button type="button" data-test-start data-test-url={ "/tests/" + strconv.FormatInt(test.ID, 10) } data-preset={ test.Preset } data-mode={ test.Mode } class="btn-primary px-5 py-3 text-sm uppercase tracking-[0.08em]"><i data-lucide="play" class="w-4 h-4"></i>Iniciar o teste</button>
+				}
+			</div>
+
+			<div class="mt-8 grid lg:grid-cols-[1.15fr_.85fr] gap-4">
+				<div class="ui-panel-flat p-6 sm:p-7">
+					<div class="flex items-center justify-between gap-3"><div><p class="micro-label text-lamp">Seu desempenho</p><h2 class="font-display text-2xl font-800 mt-2">Como você está indo.</h2></div><i data-lucide="chart-no-axes-combined" class="w-6 h-6 text-lamp"></i></div>
+					if latest == nil {
+						<div class="mt-7 border border-dashed border-line bg-ink p-6"><p class="text-cream font-800">Você ainda não iniciou este teste.</p><p class="text-sm text-muted mt-1">Quando estiver pronto, clique em “Iniciar o teste”. A primeira tentativa vai criar a sua linha de base.</p></div>
+					} else {
+						<div class="mt-7 grid sm:grid-cols-3 gap-3">
+							<div class="border border-line bg-ink p-4"><p class="text-xs text-muted">Última nota</p><p class="font-display text-3xl text-cream mt-2">{ fmtScoreCents(latest.ScoreCents) }</p><p class="text-xs text-muted mt-1">{ strconv.Itoa(latest.Score) }/{ strconv.Itoa(latest.Total) }</p></div>
+							<div class="border border-line bg-ink p-4"><p class="text-xs text-muted">Tentativas</p><p class="font-display text-3xl text-cream mt-2">{ strconv.Itoa(summary.AttemptCount) }</p><p class="text-xs text-muted mt-1">{ strconv.Itoa(summary.CompletedCount) } concluídas</p></div>
+							<div class="border border-line bg-ink p-4"><p class="text-xs text-muted">Status</p><p class={ "font-800 mt-3", templ.KV("text-teal", latest.FinishedAt != nil), templ.KV("text-lamp", latest.FinishedAt == nil) }>{ attemptStatus(latest) }</p><p class="text-xs text-muted mt-1">última tentativa</p></div>
+						</div>
+					}
+				</div>
+
+				<div class="ui-panel-flat p-6 sm:p-7">
+					<div class="flex items-center gap-3"><span class="grid place-items-center w-10 h-10 bg-lamp/15 text-lamp border border-lamp"><i data-lucide="brain-circuit" class="w-5 h-5"></i></span><div><p class="micro-label text-lamp">Memória do sistema</p><h2 class="font-display text-2xl font-800 mt-1">O que anotamos sobre você.</h2></div></div>
+					<div class="mt-5 space-y-3">
+						if len(notes) == 0 {
+							<p class="text-sm text-muted">Ainda não há observações. Elas aparecem depois da sua primeira tentativa.</p>
+						} else {
+							for _, note := range notes {
+								<div class="flex gap-2 text-sm text-cream"><i data-lucide="dot" class="w-4 h-4 text-lamp shrink-0 mt-0.5"></i><span>{ note }</span></div>
+							}
+						}
+					</div>
+				</div>
+			</div>
+
+			<div class="mt-5 ui-panel-flat p-6 sm:p-7">
+				<div class="flex items-end justify-between gap-3"><div><p class="micro-label text-muted">Linha do tempo</p><h2 class="font-display text-2xl font-800 mt-2">Histórico de tentativas.</h2></div><span class="text-xs text-muted">{ strconv.Itoa(len(attempts)) } registros</span></div>
+				if len(attempts) == 0 {
+					<p class="mt-6 text-sm text-muted">Sua primeira tentativa aparecerá aqui.</p>
+				} else {
+					<div class="mt-5 divide-y divide-line">
+						for i, attempt := range attempts {
+							<div class="py-4 first:pt-0 last:pb-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3"><div class="flex items-center gap-3"><span class="grid place-items-center w-9 h-9 bg-surface2 text-xs font-800 text-muted border border-line">{ strconv.Itoa(len(attempts)-i) }</span><div><p class="text-sm font-800 text-cream">Tentativa { strconv.Itoa(len(attempts)-i) }</p><p class="text-xs text-muted mt-1">{ attempt.CreatedAt.Format("02/01/2006 15:04") } · { attemptStatus(&attempt) }</p></div></div><div class="flex items-center gap-2">
+								if attempt.FinishedAt != nil {
+									<span class="text-sm text-cream font-800">{ fmtScoreCents(attempt.ScoreCents) } · { strconv.Itoa(attempt.Score) }/{ strconv.Itoa(attempt.Total) }</span>
+								}
+								<a href={ testAttemptURL(test.ID, attempt.ID) } class="inline-flex items-center gap-1.5 border border-line bg-surface2 px-3 py-2 text-xs font-800 text-lamp hover:border-lamp">
+									if attempt.FinishedAt == nil {
+										<span>Continuar</span>
+									} else {
+										<span>Ver resultado</span>
+									}
+									<i data-lucide="arrow-right" class="w-3.5 h-3.5"></i>
+								</a>
+							</div></div>
+						}
+					</div>
+				}
+			</div>
+		</div>
+	}
+}
+
+func fmtScoreCents(scoreCents int64) string { return fmt.Sprintf("%.2f", float64(scoreCents)/100) }
+
+func attemptStatus(attempt *db.TestAttemptSummary) string {
+	if attempt == nil { return "Não iniciado" }
+	if attempt.FinishedAt != nil { return "Concluída" }
+	return "Em andamento"
+}
+
+templ StudyCreate(topic string, user *db.User, q *db.Quota, isAdmin bool) {
+	@Layout(AuthedPageData("Novo estudo", "", "", user, q, isAdmin)) {
+		<div class="pt-8 max-w-3xl mx-auto">
+			<div class="rise">
+				<span class="micro-label inline-flex items-center gap-2 bg-surface border border-line px-3 py-1.5 text-cream"><i data-lucide="book-open" class="w-3.5 h-3.5 text-lamp"></i>Novo estudo</span>
+				<h1 class="font-display text-4xl sm:text-5xl font-800 tracking-tight mt-4">Crie um lugar para aprender.</h1>
+				<p class="text-muted text-lg mt-3 max-w-2xl">Um estudo reúne material, chat, notas e provas sobre um tema. Você pode começar pelo conteúdo e testar depois.</p>
+			</div>
+			<form action="/studies" method="post" class="mt-9 ui-panel p-6 sm:p-8 rise">
+				<label class="block"><span class="text-sm font-800 text-cream">O que você quer estudar?</span><textarea name="topic" required rows="5" maxlength="2000" autofocus placeholder="Ex.: Funções logarítmicas e exponenciais para o ENEM" class="input mt-2 resize-none">{ topic }</textarea></label>
+				if q != nil && q.Exhausted() {
+					<p class="mt-4 text-xs text-coral flex items-center gap-1.5"><i data-lucide="alert-triangle" class="w-3.5 h-3.5 shrink-0"></i>Sua cota de tokens acabou — peça ao administrador para aumentar seu limite.</p>
+				}
+				<div class="mt-7 flex flex-col-reverse sm:flex-row gap-2 sm:justify-between"><a href="/studies" class="btn-secondary px-5 py-3 text-sm font-800 text-center">Voltar</a><button type="submit" class="btn-primary px-6 py-3 text-sm uppercase tracking-[0.08em]">Criar estudo <i data-lucide="arrow-right" class="w-4 h-4 inline"></i></button></div>
+			</form>
+		</div>
+	}
+}

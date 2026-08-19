@@ -1,0 +1,88 @@
+package components
+
+import (
+	"learnix/internal/db"
+)
+
+templ NoteEditor(f db.File, studyID int64) {
+	{{ base := studyBase(studyID) + "/files/" + idStr(f.ID) }}
+	if f.Kind == "image" {
+		<div class="flex flex-col flex-1 min-h-0">
+			<div class="flex items-center gap-2.5 px-5 py-3.5 border-b border-line shrink-0 cursor-grab active:cursor-grabbing" data-drag-handle>
+				<button type="button" @click="$dispatch('mobile-pane', { pane: 'files' })" class="lg:hidden grid place-items-center w-11 h-11 rounded-none border border-line text-muted hover:text-lamp" aria-label="Voltar aos arquivos"><i data-lucide="arrow-left" class="w-5 h-5"></i></button>
+				<i data-lucide="grip-vertical" class="w-3.5 h-3.5 text-muted/40 shrink-0 -ml-2"></i>
+				<i data-lucide="image" class="w-4 h-4 text-coral/80 shrink-0"></i>
+				<span class="font-700 text-cream truncate">{ f.Name }</span>
+			</div>
+			<div class="flex-1 min-h-0 overflow-y-auto p-6 grid place-items-center">
+				<img src={ base + "/raw" } alt={ f.Name }
+					class="max-w-full max-h-full rounded-none border border-line shadow-hard"/>
+			</div>
+		</div>
+	} else {
+		<div class="relative flex flex-col flex-1 min-h-0" x-data="noteEditor()"
+			data-study-id={ idStr(studyID) } data-file-id={ idStr(f.ID) }
+			data-save-url={ base + "/content" } data-content={ f.Content }>
+			<div class="flex items-center gap-2 px-4 py-2.5 border-b border-line shrink-0 cursor-grab active:cursor-grabbing" data-drag-handle>
+				<button type="button" @click="$dispatch('mobile-pane', { pane: 'files' })" class="lg:hidden grid place-items-center w-11 h-11 rounded-none border border-line text-muted hover:text-lamp shrink-0" aria-label="Voltar aos arquivos"><i data-lucide="arrow-left" class="w-5 h-5"></i></button>
+				<i data-lucide="grip-vertical" class="w-3.5 h-3.5 text-muted/40 shrink-0 -ml-2"></i>
+				<i data-lucide="file-text" class="w-4 h-4 text-lamp/80 shrink-0"></i>
+				<form hx-post={ base } hx-target="#file-tree" hx-swap="innerHTML" class="flex-1 min-w-0">
+					<input type="text" name="name" value={ f.Name }
+						@keydown.enter.prevent="$el.form.requestSubmit()"
+						@blur="if ($el.value.trim() && $el.value !== $el.defaultValue) $el.form.requestSubmit()"
+						class="w-full bg-transparent outline-none font-display text-lg font-600 text-cream placeholder:text-muted/40 border-b border-transparent focus:border-lamp/40 transition"/>
+				</form>
+				<span x-text="saving ? 'Salvando...' : (savedAt ? 'Salvo ' + fmtTime(savedAt) : '')"
+					class="shrink-0 text-[11px] font-600 text-muted/80"></span>
+				<button type="button" @click="cycleMode()"
+					:title="'Visualização: ' + modeLabel() + ' — clique para alternar'"
+					class="shrink-0 flex items-center gap-1.5 border border-line bg-surface2 px-3 py-2.5 min-h-12 text-[11px] font-700 text-cream/80 hover:border-lamp hover:text-lamp transition">
+					<i data-lucide="columns-2" class="w-3.5 h-3.5" :class="mode !== 'split' && 'hidden'"></i>
+					<i data-lucide="eye" class="w-3.5 h-3.5" :class="mode !== 'preview' && 'hidden'"></i>
+					<i data-lucide="eye-off" class="w-3.5 h-3.5" :class="mode !== 'source' && 'hidden'"></i>
+					<span class="hidden xl:inline" x-text="modeLabel()"></span>
+				</button>
+				<button type="button" @click="showHistory = !showHistory"
+					hx-get={ base + "/versions" } hx-target="#version-drawer" hx-swap="innerHTML"
+					class="shrink-0 flex items-center gap-1.5 border border-line bg-surface2 px-3 py-2.5 min-h-12 text-[11px] font-700 text-cream/80 hover:border-lamp hover:text-lamp transition"
+					title="Histórico de versões">
+					<i data-lucide="history" class="w-3.5 h-3.5"></i>
+					Histórico
+				</button>
+			</div>
+			<div class="flex-1 min-h-0 grid grid-rows-1 md:grid-rows-1 md:grid-cols-2 transition-[grid-template-columns,grid-template-rows] duration-300 ease-in-out"
+				:style="gridStyle()">
+				<div class="min-h-0 min-w-0 overflow-hidden transition-opacity duration-200"
+					:class="mode === 'preview' ? 'opacity-0 pointer-events-none' : 'opacity-100'"
+					:aria-hidden="mode === 'preview'">
+					<textarea x-model="content" @keydown="onKeydown($event)"
+						placeholder="Escreva em Markdown..."
+						class="h-full w-full resize-none bg-ink/80 outline-none px-5 py-4 font-mono text-sm leading-relaxed text-cream/90 placeholder:text-muted/40"></textarea>
+				</div>
+				<div class="h-full overflow-y-auto border-t md:border-t-0 md:border-l border-line px-5 py-4 bg-surface/30 min-w-0 transition-opacity duration-200"
+					:class="mode === 'source' ? 'opacity-0 pointer-events-none border-transparent' : 'opacity-100'"
+					:aria-hidden="mode === 'source'">
+					<div class="study" data-file-id={ idStr(f.ID) } x-html="preview"></div>
+					@LearningElements(decodeElements(f.ElementsJSON))
+				</div>
+			</div>
+			<div x-show="showHistory" x-cloak
+					class="absolute inset-0 right-0 z-30 w-full max-w-sm flex flex-col border-l border-line bg-surface/95  shadow-hard md:inset-y-0">
+				<div class="flex items-center justify-between px-4 py-3 border-b border-line shrink-0">
+					<span class="flex items-center gap-2 font-700 text-cream text-sm">
+						<i data-lucide="history" class="w-4 h-4 text-lamp"></i>
+						Histórico de versões
+					</span>
+					<button type="button" @click="showHistory = false"
+						class="grid place-items-center w-11 h-11 rounded-none text-muted hover:text-coral hover:bg-surface2 transition" aria-label="Fechar histórico">
+						<i data-lucide="x" class="w-4 h-4"></i>
+					</button>
+				</div>
+				<div id="version-drawer" class="flex-1 min-h-0 overflow-y-auto">
+					<p class="px-4 py-8 text-center text-xs text-muted/70">Carregando versões...</p>
+				</div>
+			</div>
+		</div>
+	}
+}

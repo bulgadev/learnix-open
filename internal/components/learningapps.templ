@@ -1,0 +1,54 @@
+package components
+
+import (
+	"encoding/json"
+	"fmt"
+
+	"learnix/internal/db"
+	"learnix/internal/learningapps"
+)
+
+templ LearningAppsPage(studyID int64, topic string, apps []learningapps.App, user *db.User, q *db.Quota, isAdmin bool) {
+	@Layout(AuthedPageData("Apps interativos", "study", topic, user, q, isAdmin)) {
+		<div class="pt-6 max-w-5xl mx-auto">
+			<div class="mb-8 rise">
+				<div class="flex flex-wrap items-center justify-between gap-3">
+					<div>
+						<span class="micro-label inline-flex items-center gap-2 bg-surface border border-line px-3 py-1.5 text-cream mb-3">
+							<i data-lucide="blocks" class="w-3.5 h-3.5 text-lamp"></i>
+							Ambiente de estudo
+						</span>
+						<h2 class="font-display text-3xl sm:text-4xl font-800 tracking-tight">Apps interativos.</h2>
+						<p class="text-muted text-sm mt-1.5">Pratique conceitos em experiências pequenas, seguras e focadas.</p>
+					</div>
+					<a href={ studyBase(studyID) } class="btn-secondary px-3.5 py-2 text-xs font-800">
+						<i data-lucide="arrow-left" class="w-3.5 h-3.5"></i>
+						Voltar ao estudo
+					</a>
+				</div>
+			</div>
+			<div class="mb-5 flex items-start gap-3 border border-lamp bg-lamp/10 px-4 py-3 text-xs text-cream/80" role="status">
+				<i data-lucide="flask-conical" class="mt-0.5 h-4 w-4 shrink-0 text-lamp"></i>
+				<p><strong class="font-800 text-lamp">Recurso experimental.</strong> Os apps interativos ainda estão em desenvolvimento e podem mudar.</p>
+			</div>
+
+			<div class="grid gap-4 md:grid-cols-2 stagger">
+				for index, app := range apps {
+					<div class="ui-panel-flat p-5">
+						<div id={ fmt.Sprintf("learning-app-%d", index) } class="learning-app-root"></div>
+						<script type="application/json" data-learning-app data-target={ fmt.Sprintf("learning-app-%d", index) } data-app-json={ appSpecJSON(app) }></script>
+					</div>
+				}
+			</div>
+		</div>
+		<script src="/static/learning-apps-runtime.js" defer></script>
+	}
+}
+
+func appSpecJSON(app learningapps.App) string {
+	b, err := json.Marshal(app)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
+}

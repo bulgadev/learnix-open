@@ -1,0 +1,13 @@
+.git
+.gitignore
+*.db
+*.db-*
+.env
+.env.*
+.omo
+docs
+twstix.db
+/tmp/twstix
+/tmp/twstix_tunnel.log
+Dockerfile
+docker-compose.yml

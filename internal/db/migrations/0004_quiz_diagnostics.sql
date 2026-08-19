@@ -1,0 +1,2 @@
+-- 0004_quiz_diagnostics.sql: columns are added idempotently by db.Migrate so
+-- existing SQLite databases and fresh installs follow the same path.

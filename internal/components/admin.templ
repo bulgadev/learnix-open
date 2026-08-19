@@ -1,0 +1,172 @@
+package components
+
+import (
+	"strconv"
+
+	"learnix/internal/db"
+)
+
+func uidPath(prefix string, id int64) string {
+	return prefix + strconv.FormatInt(id, 10)
+}
+
+// quotaPct is the used/quota percentage for the progress bar (0 when there
+// is nothing to show, capped at 100).
+func quotaPct(u db.UserUsage) int {
+	if u.Quota <= 0 {
+		return 0
+	}
+	p := int(u.Used * 100 / u.Quota)
+	if p > 100 {
+		return 100
+	}
+	if p < 0 {
+		return 0
+	}
+	return p
+}
+
+func usageKindLabel(kind string) string {
+	if kind == "quiz" {
+		return "Questões"
+	}
+	return "Chat"
+}
+
+templ AdminDashboard(data PageData, users []db.UserUsage, recent []db.UsageEntry, csrf, notice string) {
+	@Layout(data) {
+		<div class="pt-8">
+			<div class="mb-8 rise">
+				<span class="micro-label inline-flex items-center gap-2 bg-surface border border-line px-3 py-1.5 text-cream mb-3">
+					<i data-lucide="shield" class="w-3.5 h-3.5 text-lamp"></i>
+					Painel do administrador
+				</span>
+				<h1 class="font-display text-3xl font-800 tracking-tight">Cotas de uso</h1>
+				<p class="text-muted text-sm mt-2 max-w-2xl leading-relaxed">
+					Toda a IA roda com a chave do servidor. Cada usuário tem uma cota de tokens —
+					novos usuários recebem 250.000 tokens. Zerar o uso não apaga o histórico.
+				</p>
+			</div>
+
+			if notice != "" {
+				<div class="mb-6 rounded-none border border-lamp bg-lamp/10 text-lamp text-sm px-4 py-3 flex items-center gap-2 pop">
+					<i data-lucide="check-circle" class="w-4 h-4 shrink-0"></i>
+					{ notice }
+				</div>
+			}
+
+			<div class="ui-panel-flat overflow-x-auto rise" style="animation-delay:.08s">
+				<table class="w-full text-sm min-w-[760px]">
+					<thead>
+						<tr class="text-left text-[11px] font-800 uppercase tracking-[0.14em] text-muted border-b border-line">
+							<th class="px-5 py-3.5">Usuário</th>
+							<th class="px-5 py-3.5">Desde</th>
+							<th class="px-5 py-3.5">Uso</th>
+							<th class="px-5 py-3.5">Cota (tokens)</th>
+							<th class="px-5 py-3.5 text-right">Ações</th>
+						</tr>
+					</thead>
+					<tbody>
+						for _, u := range users {
+							<tr class="border-b border-line/60 last:border-0 hover:bg-ink/30 transition">
+								<td class="px-5 py-3.5">
+									<span class="flex items-center gap-2 text-cream font-700">
+										<i data-lucide="user" class="w-3.5 h-3.5 text-muted"></i>
+										<span class="max-w-[220px] truncate">{ u.Email }</span>
+										if u.Quota <= 0 {
+											<span class="text-[10px] px-1.5 py-0.5 bg-coral/15 text-coral font-800 uppercase tracking-wide shrink-0">Sem cota</span>
+										}
+									</span>
+								</td>
+								<td class="px-5 py-3.5 text-muted whitespace-nowrap">{ u.CreatedAt.Format("02/01/2006") }</td>
+								<td class="px-5 py-3.5">
+									<span class="text-cream whitespace-nowrap">{ fmtTokens(u.Used) } <span class="text-muted">/ { fmtTokens(u.Quota) }</span></span>
+									<div class="mt-1.5 w-28 h-1.5 rounded-none bg-surface2 overflow-hidden">
+										<div class={ "h-full rounded-none", templ.KV("bg-lamp", quotaPct(u) < 90), templ.KV("bg-coral", quotaPct(u) >= 90) }
+											style={ "width:" + strconv.Itoa(quotaPct(u)) + "%" }></div>
+									</div>
+								</td>
+								<td class="px-5 py-3.5">
+									<form action={ uidPath("/admin/users/", u.ID) + "/quota" } method="post" class="flex items-center gap-2">
+										<input type="hidden" name="csrf" value={ csrf }/>
+										<input type="number" name="quota" min="0" step="1" required
+											value={ strconv.FormatInt(u.Quota, 10) }
+											class="w-28 input px-2.5 py-1.5 text-sm"/>
+										<button type="submit" title="Salvar cota"
+											class="flex items-center gap-1 text-xs font-700 text-lamp hover:bg-lamp/10 border border-lamp px-2.5 py-1.5 transition">
+											<i data-lucide="save" class="w-3.5 h-3.5"></i>
+										</button>
+									</form>
+								</td>
+								<td class="px-5 py-3.5">
+									<div class="flex items-center justify-end gap-2">
+										<form action={ uidPath("/admin/users/", u.ID) + "/reset" } method="post">
+											<input type="hidden" name="csrf" value={ csrf }/>
+											<button type="submit" title="Zerar uso"
+												class="flex items-center gap-1 text-xs font-700 text-muted hover:text-lamp border border-line bg-surface2 px-2.5 py-1.5 transition">
+												<i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+												Zerar uso
+											</button>
+										</form>
+										<form action={ uidPath("/admin/users/", u.ID) + "/delete" } method="post" x-data="{ ask: false }"
+											class="flex items-center gap-2">
+											<input type="hidden" name="csrf" value={ csrf }/>
+											<span x-show="ask" x-cloak class="text-[11px] text-coral font-700 whitespace-nowrap">Apagar tudo de { u.Email }?</span>
+											<button type="button" x-show="!ask" @click="ask = true" title="Remover usuário"
+												class="flex items-center gap-1 text-xs font-700 text-coral hover:bg-coral/10 border border-coral px-2.5 py-1.5 transition">
+												<i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+											</button>
+											<button type="submit" x-show="ask" x-cloak
+												class="flex items-center gap-1 text-xs font-800 text-ink bg-coral px-2.5 py-1.5 transition">
+												Confirmar
+											</button>
+										</form>
+									</div>
+								</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
+
+			<div class="mt-10 rise" style="animation-delay:.16s">
+				<h2 class="font-display text-xl font-800 mb-4 flex items-center gap-2">
+					<i data-lucide="activity" class="w-4 h-4 text-lamp"></i>
+					Uso recente
+				</h2>
+				if len(recent) == 0 {
+					<div class="ui-panel-flat border-dashed p-8 text-center">
+						<p class="text-muted text-sm">Nenhum uso de IA registrado ainda.</p>
+					</div>
+				} else {
+					<div class="ui-panel-flat overflow-x-auto">
+						<table class="w-full text-sm min-w-[560px]">
+							<thead>
+								<tr class="text-left text-[11px] font-800 uppercase tracking-[0.14em] text-muted border-b border-line">
+									<th class="px-5 py-3">Quando</th>
+									<th class="px-5 py-3">Usuário</th>
+									<th class="px-5 py-3">Tipo</th>
+									<th class="px-5 py-3 text-right">Tokens</th>
+								</tr>
+							</thead>
+							<tbody>
+								for _, e := range recent {
+									<tr class="border-b border-line/60 last:border-0">
+										<td class="px-5 py-2.5 text-muted whitespace-nowrap">{ e.CreatedAt.Format("02/01 15:04") }</td>
+										<td class="px-5 py-2.5 text-cream"><span class="max-w-[220px] truncate block">{ e.Email }</span></td>
+										<td class="px-5 py-2.5">
+											<span class={ "text-[10px] font-800 uppercase tracking-wide border px-2 py-0.5",
+												templ.KV("text-lamp bg-lamp/10 border-lamp", e.Kind == "quiz"),
+												templ.KV("text-muted bg-surface2 border-line", e.Kind != "quiz") }>{ usageKindLabel(e.Kind) }</span>
+										</td>
+										<td class="px-5 py-2.5 text-right text-cream whitespace-nowrap">{ fmtTokens(e.Tokens) }</td>
+									</tr>
+								}
+							</tbody>
+						</table>
+					</div>
+				}
+			</div>
+		</div>
+	}
+}

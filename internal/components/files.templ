@@ -1,0 +1,186 @@
+package components
+
+import (
+	"sort"
+	"strconv"
+
+	"learnix/internal/db"
+)
+
+func idStr(id int64) string {
+	return strconv.FormatInt(id, 10)
+}
+
+type fileNode struct {
+	f        db.File
+	children []*fileNode
+}
+
+func buildFileTree(files []db.File) []*fileNode {
+	byID := make(map[int64]*fileNode, len(files))
+	for i := range files {
+		byID[files[i].ID] = &fileNode{f: files[i]}
+	}
+	var roots []*fileNode
+	for _, n := range byID {
+		if n.f.ParentID != 0 {
+			if p, ok := byID[n.f.ParentID]; ok {
+				p.children = append(p.children, n)
+				continue
+			}
+		}
+		roots = append(roots, n)
+	}
+	var sortNodes func(ns []*fileNode)
+	sortNodes = func(ns []*fileNode) {
+		sort.Slice(ns, func(i, j int) bool {
+			fi, fj := ns[i].f.Kind == "folder", ns[j].f.Kind == "folder"
+			if fi != fj {
+				return fi
+			}
+			return ns[i].f.Name < ns[j].f.Name
+		})
+		for _, n := range ns {
+			sortNodes(n.children)
+		}
+	}
+	sortNodes(roots)
+	return roots
+}
+
+func allFolders(files []db.File) []db.File {
+	var out []db.File
+	for _, f := range files {
+		if f.Kind == "folder" {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+func fileKindIcon(kind string) string {
+	switch kind {
+	case "folder":
+		return "folder"
+	case "image":
+		return "image"
+	default:
+		return "file-text"
+	}
+}
+
+func indentClass(depth int) string {
+	switch depth {
+	case 0:
+		return "pl-2"
+	case 1:
+		return "pl-6"
+	case 2:
+		return "pl-10"
+	default:
+		return "pl-14"
+	}
+}
+
+templ FileTree(files []db.File, studyID int64) {
+	{{ nodes := buildFileTree(files) }}
+	{{ folders := allFolders(files) }}
+	<ul class="space-y-0.5">
+		<li>
+			<a href={ studyBase(studyID) + "/mapa-mental" }
+				class="group flex items-center gap-1.5 pr-1 py-2.5 min-h-12 pl-2 bg-lamp/5 border border-lamp hover:bg-lamp/10 transition"
+				title="Mapa mental do estudo">
+				<span class="w-3.5 shrink-0"></span>
+				<i data-lucide="share-2" class="w-4 h-4 text-lamp shrink-0"></i>
+				<span class="flex-1 truncate text-sm font-700 text-teal">Mind Map</span>
+			</a>
+		</li>
+	if len(nodes) == 0 {
+		<li class="px-3 py-8 text-center text-xs text-muted/70">Nenhum arquivo ainda.<br/>Use o menu “Novo” acima.</li>
+	} else {
+		for _, n := range nodes {
+			@fileItem(n, studyID, folders, 0)
+		}
+	}
+	</ul>
+}
+
+templ fileItem(n *fileNode, studyID int64, folders []db.File, depth int) {
+	{{ base := studyBase(studyID) + "/files/" + idStr(n.f.ID) }}
+	if n.f.Kind == "folder" {
+		<li x-data="{ open: true, menu: false, renaming: false, moving: false }" class="relative">
+			<div class={ "group flex items-center gap-1.5 rounded-none pr-1 py-2.5 min-h-12 hover:bg-surface2/80 transition cursor-pointer select-none", indentClass(depth) }
+				@click="open = !open">
+				<i data-lucide="chevron-right" class="w-3.5 h-3.5 text-muted shrink-0 transition-transform" :class="open && 'rotate-90'"></i>
+				<i data-lucide="folder" class="w-4 h-4 text-lamp/80 shrink-0"></i>
+				<span class="flex-1 truncate text-sm text-cream/90">{ n.f.Name }</span>
+				<button type="button" @click.stop="menu = !menu"
+					class="grid place-items-center w-12 h-12 lg:w-6 lg:h-6 rounded-none text-muted hover:text-cream hover:bg-surface transition lg:opacity-0 lg:group-hover:opacity-100" aria-label="Ações da pasta">
+					<i data-lucide="ellipsis" class="w-3.5 h-3.5"></i>
+				</button>
+			</div>
+			@fileMenu(n.f, base, folders)
+			<ul x-show="open" class="space-y-0.5">
+				for _, c := range n.children {
+					@fileItem(c, studyID, folders, depth+1)
+				}
+			</ul>
+		</li>
+	} else {
+		<li x-data="{ menu: false, renaming: false, moving: false }" class="relative">
+			<div class={ "group flex items-center gap-1.5 rounded-none pr-1 py-2.5 min-h-12 hover:bg-surface2/80 transition cursor-pointer select-none", indentClass(depth) }
+				hx-get={ base + "/edit" } hx-target="#main-pane" hx-swap="innerHTML">
+				<span class="w-3.5 shrink-0"></span>
+				<i data-lucide={ fileKindIcon(n.f.Kind) } class={ "w-4 h-4 shrink-0", templ.KV("text-lamp/80", n.f.Kind == "note"), templ.KV("text-coral/70", n.f.Kind == "image") }></i>
+				<span class="flex-1 truncate text-sm text-cream/90">{ n.f.Name }</span>
+				<button type="button" @click.stop="menu = !menu"
+					class="grid place-items-center w-12 h-12 lg:w-6 lg:h-6 rounded-none text-muted hover:text-cream hover:bg-surface transition lg:opacity-0 lg:group-hover:opacity-100" aria-label="Ações do arquivo">
+					<i data-lucide="ellipsis" class="w-3.5 h-3.5"></i>
+				</button>
+			</div>
+			@fileMenu(n.f, base, folders)
+		</li>
+	}
+}
+
+templ fileMenu(f db.File, base string, folders []db.File) {
+	<div x-show="menu" @click.outside="menu = false"
+		class="absolute right-1 top-8 z-30 w-44 rounded-none border border-line bg-surface2 shadow-hard p-1 text-sm">
+		<button type="button" @click="menu = false; renaming = true"
+			class="w-full flex items-center gap-2 rounded-none px-2.5 py-1.5 text-cream/80 hover:bg-surface hover:text-cream transition">
+			<i data-lucide="pencil" class="w-3.5 h-3.5 text-muted"></i>
+			Renomear
+		</button>
+		<button type="button" @click="menu = false; moving = true"
+			class="w-full flex items-center gap-2 rounded-none px-2.5 py-1.5 text-cream/80 hover:bg-surface hover:text-cream transition">
+			<i data-lucide="folder-input" class="w-3.5 h-3.5 text-muted"></i>
+			Mover
+		</button>
+		<form hx-post={ base + "/delete" } hx-target="#file-tree" hx-swap="innerHTML" hx-confirm="Excluir este item?">
+			<button type="submit"
+				class="w-full flex items-center gap-2 rounded-none px-2.5 py-1.5 text-coral/90 hover:bg-coral/10 hover:text-coral transition">
+				<i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+				Excluir
+			</button>
+		</form>
+	</div>
+	<form x-show="renaming" hx-post={ base } hx-target="#file-tree" hx-swap="innerHTML"
+		class="flex items-center gap-1 px-2 py-1">
+		<input type="text" name="name" value={ f.Name } @click.stop @keydown.enter="$el.form.requestSubmit()"
+			class="input px-2 py-1 text-xs"/>
+		<button type="submit" class="btn-primary px-2 py-1 text-xs">OK</button>
+	</form>
+	<form x-show="moving" hx-post={ base } hx-target="#file-tree" hx-swap="innerHTML"
+		class="flex items-center gap-1 px-2 py-1">
+		<select name="parent_id" @click.stop
+			class="flex-1 min-w-0 bg-ink border border-line focus:border-lamp px-1.5 py-1 text-xs text-cream">
+			<option value="0" selected?={ f.ParentID == 0 }>Raiz</option>
+			for _, fo := range folders {
+				if fo.ID != f.ID {
+					<option value={ idStr(fo.ID) } selected?={ fo.ID == f.ParentID }>{ fo.Name }</option>
+				}
+			}
+		</select>
+		<button type="submit" class="btn-primary px-2 py-1 text-xs">Mover</button>
+	</form>
+}
